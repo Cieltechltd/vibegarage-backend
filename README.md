@@ -4,13 +4,6 @@ Description:
 Backend API for VibeGarage, a music streaming platform. Built with FastAPI and Python, handling authentication, artist management, track uploads, listener dashboards, search, and monetization logic.
 
 🗂 Project Structure
-app/
-├── models/         # SQLAlchemy models (User, Track, Play, etc.)
-├── routers/        # API routes (auth, tracks, search, listener, artist_profile)
-├── schemas/        # Pydantic schemas for API responses
-├── db/             # Database setup and migrations
-├── main.py         # FastAPI app entry
-└── deps.py         # Common dependencies like get_db, get_current_user
 
 🔑 Authentication
 
