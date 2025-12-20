@@ -17,4 +17,4 @@ class Track(Base):
     artist_id = Column(String, ForeignKey("users.id"))
     artist = relationship("User", back_populates="tracks")
     likes_rel = relationship("Like", backref="track")
-
+    plays = relationship("Play", backref="track")

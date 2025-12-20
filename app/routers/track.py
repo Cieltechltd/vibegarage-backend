@@ -39,7 +39,7 @@ def upload_track(
 
 
 @router.get("/my", response_model=list[TrackOut])
-def my_tracks(
+def get_my_tracks(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):

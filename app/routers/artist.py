@@ -9,7 +9,8 @@ from app.models.user import User
 from app.models.track import Track
 from app.schemas.artist import ArtistProfileCreate, ArtistProfileResponse, ArtistStatsOut
 from app.models.follow import Follow
-
+from pydantic import BaseModel
+from typing import Optional
 
 
 router = APIRouter(prefix="/artist", tags=["artist"])
@@ -62,6 +63,19 @@ def get_artist_profile(
 
     return profile
 
+@router.get("/profile")
+def view_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_artist:
+        raise HTTPException(status_code=403, detail="Not an artist")
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "stage_name": current_user.stage_name,
+    }
 
 @router.get("/stats", response_model=ArtistStatsOut)
 def artist_stats(
@@ -166,3 +180,30 @@ def follow_status(
     }
 
 
+class ArtistProfileUpdate(BaseModel):
+    stage_name: Optional[str] = None
+    bio: Optional[str] = None
+    
+    
+@router.put("/profile")
+def update_profile(
+    profile_data: ArtistProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_artist:
+        raise HTTPException(status_code=403, detail="Not an artist")
+
+    if profile_data.stage_name is not None:
+        current_user.stage_name = profile_data.stage_name
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "stage_name": current_user.stage_name,
+        "message": "Profile updated successfully"
+    }
