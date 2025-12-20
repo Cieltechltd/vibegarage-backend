@@ -63,3 +63,6 @@ Artists earn revenue only after 10,000 streams or 150 followers
 Streams count only if ads played
 
 Endpoints expose artist eligibility and earnings status
+
+
+test merge
