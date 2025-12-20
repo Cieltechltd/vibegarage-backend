@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.db.database import get_db
-from app.dependencies import get_current_user
+from app.core.deps import get_current_user
 from app.models.play import Play
 from app.models.follow import Follow
 from app.services.monetization import check_artist_eligibility
