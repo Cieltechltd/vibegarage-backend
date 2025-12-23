@@ -3,6 +3,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 from app.db.database import Base
+from datetime import datetime
 
 
 class User(Base):
@@ -16,12 +17,14 @@ class User(Base):
     role = Column(String, default="listener")  # listener | artist | admin
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
-    
-    
+
     tracks = relationship("Track", back_populates="artist")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     likes = relationship("Like", backref="user")
     plays = relationship("Play", backref="user")
+    
+    reset_token = Column(String, nullable=True, index=True)
+    reset_token_expires = Column(DateTime, nullable=True)
     
 
 followers = relationship(
