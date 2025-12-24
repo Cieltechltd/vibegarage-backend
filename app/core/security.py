@@ -2,7 +2,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import jwt
 
-SECRET_KEY = "CHANGE_THIS_SECRET_LATER"
+SECRET_KEY = "vibe_TIMES@123"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
