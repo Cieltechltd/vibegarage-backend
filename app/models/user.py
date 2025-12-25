@@ -22,6 +22,8 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     likes = relationship("Like", backref="user")
     plays = relationship("Play", backref="user")
+    albums = relationship("Album", back_populates="artist")
+
     
     reset_token = Column(String, nullable=True, index=True)
     reset_token_expires = Column(DateTime, nullable=True)

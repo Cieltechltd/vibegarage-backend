@@ -19,6 +19,13 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from app.db.database import Base
+from app.models.user import User
+from app.models.track import Track
+from app.models.play import Play
+from app.models.like import Like
+from app.models.follow import Follow
+from app.models.album import Album
+
 target_metadata = Base.metadata
 
 

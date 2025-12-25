@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.db.init_db import init_db
-from app.routers import auth, artist, track, user, search, listener_dashboard, trending
+from app.routers import auth, artist, track, user, search, listener_dashboard, trending, album
 
 app = FastAPI(title="VibeGarage API")
 
@@ -16,6 +16,7 @@ app.include_router(user.router)
 app.include_router(search.router)
 app.include_router(listener_dashboard.router)
 app.include_router(trending.router)
+app.include_router(album.router)
 
 
 
