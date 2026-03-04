@@ -13,9 +13,9 @@ class Album(Base):
     description = Column(String, nullable=True)
     release_date = Column(DateTime, default=datetime.utcnow)
 
-    artist_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    artist_id = Column(String, ForeignKey("users.id"), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    artist = relationship("User", backref="albums")
-    tracks = relationship("Track", backref="album", cascade="all, delete")
+    artist = relationship("User", back_populates="albums")
+    tracks = relationship("Track", backref="track_album", cascade="all, delete")

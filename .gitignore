@@ -8,3 +8,8 @@ uploads/
 *.db
 app.db
 vibegrage.db
+*alembic_version
+alembic # Alembic migration files
+migrations # SQLAlchemy migration files
+alembic.ini
+.env

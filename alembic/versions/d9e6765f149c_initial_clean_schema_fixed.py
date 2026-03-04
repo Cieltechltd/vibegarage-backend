@@ -1,8 +1,8 @@
-"""initial schema
+"""initial clean schema fixed
 
-Revision ID: dd3c90556cd5
+Revision ID: d9e6765f149c
 Revises: 
-Create Date: 2025-12-25 14:24:48.742651
+Create Date: 2026-03-03 10:43:00.219426
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'dd3c90556cd5'
+revision: str = 'd9e6765f149c'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -30,7 +30,7 @@ def upgrade() -> None:
     sa.Column('role', sa.String(), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('is_verified', sa.Boolean(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('reset_token', sa.String(), nullable=True),
     sa.Column('reset_token_expires', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
@@ -41,8 +41,9 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
     sa.Column('cover_image', sa.String(), nullable=True),
+    sa.Column('description', sa.String(), nullable=True),
     sa.Column('release_date', sa.DateTime(), nullable=True),
-    sa.Column('artist_id', sa.Integer(), nullable=False),
+    sa.Column('artist_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['artist_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -61,6 +62,7 @@ def upgrade() -> None:
     sa.Column('title', sa.String(), nullable=False),
     sa.Column('audio_path', sa.String(), nullable=False),
     sa.Column('cover_path', sa.String(), nullable=True),
+    sa.Column('plays', sa.Integer(), nullable=True),
     sa.Column('likes', sa.Integer(), nullable=True),
     sa.Column('artist_id', sa.String(), nullable=True),
     sa.Column('album_id', sa.Integer(), nullable=True),
@@ -78,9 +80,9 @@ def upgrade() -> None:
     )
     op.create_table('plays',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('track_id', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.Column('user_id', sa.String(), nullable=False),
+    sa.Column('track_id', sa.String(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')

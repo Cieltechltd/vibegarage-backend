@@ -1,9 +1,12 @@
+import os
+import sys
+from os.path import abspath, dirname
+sys.path.insert(0, dirname(dirname(abspath(__file__))))
 from logging.config import fileConfig
-
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-
 from alembic import context
+from app.db.database import Base, SQLALCHEMY_DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -60,14 +63,17 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+    """Run migrations in 'online' mode."""
+    
+    # Get configuration section
+    alembic_config = config.get_section(config.config_ini_section, {})
+    
+    # Override the sqlalchemy.url with the one from our database.py
+    # This bypasses the interpolation error in alembic.ini
+    alembic_config["sqlalchemy.url"] = SQLALCHEMY_DATABASE_URL
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        alembic_config,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
@@ -79,6 +85,7 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+    
 
 
 if context.is_offline_mode():

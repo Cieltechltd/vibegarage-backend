@@ -1,8 +1,18 @@
 from fastapi import FastAPI
+from fastapi.security import HTTPBearer
 from app.db.init_db import init_db
 from app.routers import auth, artist, track, user, search, listener_dashboard, trending, album
+from dotenv import load_dotenv
 
-app = FastAPI(title="VibeGarage API")
+auth_scheme = HTTPBearer()
+load_dotenv()
+
+app = FastAPI(
+    title="VibeGarage API",
+    description="API for VibeGarage music streaming service",
+    version="1.0.0",
+    swagger_ui_parameters={"persistAuthorization": True} 
+)
 
 
 @app.on_event("startup")
@@ -17,9 +27,6 @@ app.include_router(search.router)
 app.include_router(listener_dashboard.router)
 app.include_router(trending.router)
 app.include_router(album.router)
-
-
-
 
 @app.get("/")
 def root():

@@ -22,8 +22,9 @@ def listener_dashboard(
         Like.user_id == current_user.id
     ).count()
 
+   
     total_follows = db.query(Follow).filter(
-        Follow.user_id == current_user.id
+        Follow.follower_id == current_user.id
     ).count()
 
     total_plays = db.query(Play).filter(
@@ -87,9 +88,10 @@ def followed_artists(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    
     follows = (
         db.query(Follow)
-        .filter(Follow.user_id == current_user.id)
+        .filter(Follow.follower_id == current_user.id)
         .all()
     )
 
@@ -115,11 +117,11 @@ def listener_details(
         .all()
     )
 
-    # followed artists
+    
     followed_artists = (
         db.query(User)
         .join(Follow, Follow.artist_id == User.id)
-        .filter(Follow.user_id == current_user.id)
+        .filter(Follow.follower_id == current_user.id)
         .all()
     )
 

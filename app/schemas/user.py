@@ -4,19 +4,22 @@ from typing import Optional
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-
+    username: str
+    full_name: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
     email: EmailStr
+    username: str
     role: str
 
     class Config:
         from_attributes = True
 
 class UserPublic(BaseModel):
-    id: int
+    id: str  
     email: str
+    username: str
     stage_name: Optional[str] = None
 
     class Config:
@@ -25,7 +28,6 @@ class UserPublic(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
 
 class TokenResponse(BaseModel):
     access_token: str
