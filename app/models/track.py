@@ -22,4 +22,5 @@ class Track(Base):
     
     
     album = relationship("Album", back_populates="tracks", overlaps="track_album")
+    lyrics = relationship("Lyric", backref="track", uselist=False, cascade="all, delete-orphan")
 

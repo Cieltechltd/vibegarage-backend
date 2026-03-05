@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, Body
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from app.core.deps import get_current_user
@@ -8,7 +8,9 @@ from app.schemas.track import TrackOut, PublicTrackOut
 from app.services.file_storage import save_file
 from app.models.like import Like
 from app.models.user import User
+from app.models.play import Play
 from fastapi import HTTPException
+import uuid
 
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
@@ -46,23 +48,38 @@ def get_my_tracks(
     return db.query(Track).filter(
         Track.artist_id == current_user.id
     ).all()
-@router.get("/my", response_model=list[TrackOut])
-def my_tracks(
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    return db.query(Track).filter(
-        Track.artist_id == current_user.id
-    ).all()
 
+# Removed the duplicate my_tracks function to keep code clean
 
 @router.get("/stream/{track_id}")
-def stream_track(track_id: str, db: Session = Depends(get_db)):
+def stream_track(
+    track_id: str, 
+    ad_viewed: bool = Query(False), # Captured from the frontend signal
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) # Now requires user for tracking
+):
+    # 1. Verify track and get the artist (owner)
     track = db.query(Track).filter(Track.id == track_id).first()
-
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
+    artist = db.query(User).filter(User.id == track.artist_id).first()
+
+    # 2. Logic: Only record as monetized if ad was shown AND artist is eligible
+    is_monetized = False
+    if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
+        is_monetized = True
+
+    # 3. Create detailed Play record
+    new_play = Play(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        track_id=track_id,
+        is_monetized_stream=is_monetized
+    )
+    db.add(new_play)
+
+    # 4. Increment legacy play counter
     track.plays += 1
     db.commit()
 
@@ -87,7 +104,6 @@ def like_track(
     ).first()
 
     if existing:
-        # unlike
         db.delete(existing)
         track.likes -= 1
         action = "unliked"

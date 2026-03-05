@@ -1,3 +1,5 @@
+import secrets
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.models.user import User
@@ -6,9 +8,8 @@ from app.core.security import hash_password, verify_password, create_access_toke
 from app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse
 from app.core.deps import get_current_user
 from datetime import datetime, timedelta
-import secrets
-import uuid
 from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
+from app.services.monetization import check_and_update_eligibility
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -19,12 +20,13 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    
     new_user = User(
         id=str(uuid.uuid4()),
         email=user.email,
         username=getattr(user, 'username', None),
         password_hash=hash_password(user.password),
-        role="LISTENER"
+        role=user.role.value if hasattr(user, 'role') else "LISTENER"
     )
 
     db.add(new_user)
@@ -43,6 +45,16 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     # Verify password using security logic
     if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid credentials")
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403, 
+            detail="This account has been suspended. Please contact Vibe Garage support."
+        )
+    
+        # Check and update monetization eligibility for artists on login
+    if user.role == "ARTIST":
+        check_and_update_eligibility(user.id, db)
 
     # Generate JWT token using user UUID
     token = create_access_token(user.id)
@@ -91,10 +103,9 @@ def reset_password(
     if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Token expired")
 
-    
     user.password_hash = hash_password(data.new_password)
     
-   
+    # Clear the token fields after a successful reset
     user.reset_token = None
     user.reset_token_expires = None
 

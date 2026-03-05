@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
@@ -18,6 +18,15 @@ class User(Base):
     role = Column(String, default="listener")  # listener | artist | admin
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    monetization_eligible = Column(Boolean, default=False)  
+    total_earned_vcoins = Column(Integer, default=0)
+    balance_ngn = Column(Float, default=0.0)      # Used by Artists (Real Money)
+    vcoin_balance = Column(Float, default=0.0)      # Used by Listeners (V-Coins)
+    subscription_expiry = Column(DateTime, nullable=True)
+    is_verified_artist = Column(Boolean, default=False)
+    verification_fee_paid = Column(Boolean, default=False)
+    verified_at = Column(DateTime, nullable=True)
+    verification_amount_paid = Column(Float, nullable=True)
 
     tracks = relationship("Track", back_populates="artist")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

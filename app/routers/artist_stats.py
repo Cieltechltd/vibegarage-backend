@@ -1,45 +1,46 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-
 from app.db.database import get_db
 from app.core.deps import get_current_user
-from app.models.play import Play
-from app.models.follow import Follow
-from app.services.monetization import check_artist_eligibility
+from app.models.user import User
+from app.services.monetization import check_and_update_eligibility, get_monetization_progress, calculate_artist_earnings
+from app.schemas.artist import ArtistStatsResponse 
+from app.services.wallet import get_available_balance 
 
-router = APIRouter(prefix="/artist", tags=["Artist Stats"])
+router = APIRouter(prefix="/artist/stats", tags=["Artist Stats"])
 
-
-@router.get("/monetization-status")
-def monetization_status(
-    current_user = Depends(get_current_user),
+@router.get("/overview", response_model=ArtistStatsResponse)
+def get_artist_overview(
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # total ad-based streams
-    total_streams = (
-        db.query(func.count(Play.id))
-        .filter(
-            Play.artist_id == current_user.id,
-            Play.has_ad == True
+    if current_user.role != "ARTIST":
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied. Artist role required."
         )
-        .scalar()
-    )
 
-    # followers
-    total_followers = (
-        db.query(func.count(Follow.id))
-        .filter(Follow.artist_id == current_user.id)
-        .scalar()
-    )
+    
+    is_eligible = check_and_update_eligibility(current_user.id, db)
+    progress = get_monetization_progress(current_user.id, db)
+  
+    current_balance = get_available_balance(current_user.id, db) if is_eligible else 0.0
+    
+   
+    if is_eligible:
+        msg = "Monetization active! You are now earning V-Coins."
+    else:
+        # Calculate remaining streams for the user message
+        remaining = 10000 - progress.get("current_streams", 0)
+        msg = f"Keep growing! You need {max(0, remaining)} more streams to unlock V-Coin earnings."
 
-    eligible = check_artist_eligibility(
-        total_streams=total_streams,
-        total_followers=total_followers
-    )
-
+   
     return {
-        "total_streams": total_streams,
-        "total_followers": total_followers,
-        "eligible_for_monetization": eligible
+        "total_streams": progress.get("current_streams", 0),
+        "required_streams": 10000,
+        "total_followers": progress.get("current_followers", 0),
+        "required_followers": 1000,
+        "monetization_eligible": is_eligible,
+        "vcoin_balance": current_balance,
+        "message": msg
     }

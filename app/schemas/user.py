@@ -1,11 +1,18 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+from enum import Enum
 
+
+class UserRole(str, Enum):
+    LISTENER = "LISTENER"
+    ARTIST = "ARTIST"
+    
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     username: str
     full_name: Optional[str] = None
+    role: UserRole = UserRole.LISTENER # Default to LISTENER, can be overridden to ARTIST during registration
 
 class UserResponse(BaseModel):
     id: str
