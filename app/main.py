@@ -14,15 +14,18 @@ from fastapi.staticfiles import StaticFiles
 load_dotenv()
 auth_scheme = HTTPBearer()
 
-
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # Ensure database and tables are created before the app starts accepting requests
+    try:
+        init_db()
+        print("Database initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
     yield
-    
 
 app = FastAPI(
     title="VibeGarage API",
@@ -33,7 +36,6 @@ app = FastAPI(
 )
 
 # Mounting the uploads folder
-# Access files via: https://vibegarage.app/static/clips/filename.mp4
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
 
 # Registered Routers
