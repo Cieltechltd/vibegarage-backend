@@ -9,6 +9,9 @@ SQLALCHEMY_DATABASE_URL = os.getenv(
     "postgresql://postgres:hardTIMES%40123@localhost:5432/vibegarage"
 )
 
+if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # create_engine for PostgreSQL
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
