@@ -2,12 +2,13 @@
 
 Revision ID: 7adb32d04927
 Revises: 
-Create Date: 2026-03-09 11:57:42.107885
+Create Date: 2026-03-09 12:45:00
 
 """
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '7adb32d04927'
@@ -16,14 +17,32 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
-    # 1. Create Users Table
+    # 1. Create Users Table with ALL necessary columns
     op.create_table('users',
         sa.Column('id', sa.String(), nullable=False),
         sa.Column('email', sa.String(), nullable=False),
-        sa.Column('hashed_password', sa.String(), nullable=False),
-        sa.Column('is_artist', sa.Boolean(), default=False),
+        sa.Column('password_hash', sa.String(), nullable=False),
+        sa.Column('username', sa.String(), nullable=True),
+        sa.Column('stage_name', sa.String(), nullable=True),
+        sa.Column('is_artist', sa.Boolean(), server_default='false'),
+        sa.Column('role', sa.String(), server_default='user'),
+        sa.Column('is_active', sa.Boolean(), server_default='true'),
+        sa.Column('is_verified', sa.Boolean(), server_default='false'),
+        sa.Column('monetization_eligible', sa.Boolean(), server_default='false'),
+        sa.Column('total_earned_vcoins', sa.Float(), server_default='0.0'),
+        sa.Column('balance_ngn', sa.Float(), server_default='0.0'),
+        sa.Column('vcoin_balance', sa.Integer(), server_default='0'),
+        sa.Column('subscription_expiry', sa.DateTime(), nullable=True),
+        sa.Column('is_verified_artist', sa.Boolean(), server_default='false'),
+        sa.Column('verification_fee_paid', sa.Boolean(), server_default='false'),
+        sa.Column('verified_at', sa.DateTime(), nullable=True),
+        sa.Column('verification_amount_paid', sa.Float(), nullable=True),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()')),
+        sa.Column('reset_token', sa.String(), nullable=True),
+        sa.Column('reset_token_expires', sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('email')
+        sa.UniqueConstraint('email'),
+        sa.UniqueConstraint('username')
     )
 
     # 2. Create Albums Table
@@ -46,16 +65,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id')
     )
 
-    # 4. Create Interaction Tables (Likes, Plays, Follows)
-    op.create_table('likes',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('user_id', sa.String(), sa.ForeignKey('users.id')),
-        sa.Column('track_id', sa.String(), sa.ForeignKey('tracks.id')),
-        sa.PrimaryKeyConstraint('id')
-    )
-
 def downgrade() -> None:
-    op.drop_table('likes')
     op.drop_table('tracks')
     op.drop_table('albums')
     op.drop_table('users')
