@@ -4,9 +4,9 @@ from fastapi.security import HTTPBearer
 from contextlib import asynccontextmanager
 from app.db.init_db import init_db
 from app.routers import (
-    auth, artist, payments, track, user, 
+    auth, artist, billing, track, user, 
     search, listener_dashboard, trending, 
-    album, admin, lyrics, clips
+    album, admin, lyrics, clips, payouts
 )
 from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +19,7 @@ if not os.path.exists("uploads"):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure database and tables are created before the app starts accepting requests
+    
     try:
         init_db()
         print("Database initialized successfully.")
@@ -50,7 +50,8 @@ app.include_router(album.router)
 app.include_router(admin.router)
 app.include_router(lyrics.router)
 app.include_router(clips.router)
-app.include_router(payments.router)
+app.include_router(billing.router)
+app.include_router(payouts.router)
 
 @app.get("/")
 def root():

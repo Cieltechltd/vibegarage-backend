@@ -7,7 +7,7 @@ from app.db.database import Base
 class Album(Base):
     __tablename__ = "albums"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True)
     title = Column(String, nullable=False)
     cover_image = Column(String, nullable=True)
     description = Column(String, nullable=True)

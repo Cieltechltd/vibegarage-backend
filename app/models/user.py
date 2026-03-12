@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
+from app.core.security import generate_vg_id
 from app.db.database import Base
 from datetime import datetime
 
@@ -9,7 +10,7 @@ from datetime import datetime
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(String, primary_key=True, default=lambda: generate_vg_id("VG-U"))
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     username = Column(String, unique=True, index=True, nullable=True)
@@ -33,9 +34,13 @@ class User(Base):
     likes = relationship("Like", backref="user")
     plays = relationship("Play", backref="user")
     albums = relationship("Album", back_populates="artist", overlaps="artist_albums")
+    payment_settings = relationship("ArtistPaymentSettings", back_populates="user", uselist=False)
     
     reset_token = Column(String, nullable=True, index=True)
     reset_token_expires = Column(DateTime, nullable=True)
+    verification_code = Column(String, nullable=True)
+    two_factor_secret = Column(String, nullable=True) 
+    two_factor_enabled = Column(Boolean, server_default='false')
     
 
     followers = relationship(

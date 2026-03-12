@@ -1,10 +1,22 @@
 import secrets
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+import pyotp
+import qrcode
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Header, BackgroundTasks 
 from sqlalchemy.orm import Session
+from typing import Optional
 from app.models.user import User
 from app.db.deps import get_db
-from app.core.security import hash_password, verify_password, create_access_token
+from app.core.security import (
+    hash_password, 
+    verify_password, 
+    create_access_token, 
+    generate_vg_id,
+    generate_verification_code,
+    send_verification_email
+) 
 from app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse
 from app.core.deps import get_current_user
 from datetime import datetime, timedelta
@@ -14,49 +26,53 @@ from app.services.monetization import check_and_update_eligibility
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=UserResponse)
-def signup(user: UserCreate, db: Session = Depends(get_db)):
-    # Check if email is already registered
+def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    
+    v_code = generate_verification_code()
+
+   
     new_user = User(
-        id=str(uuid.uuid4()),
+        id=generate_vg_id("VG-U"), 
         email=user.email,
         username=getattr(user, 'username', None),
         password_hash=hash_password(user.password),
-        role=user.role.value if hasattr(user, 'role') else "LISTENER"
+        role=user.role.value if hasattr(user, 'role') else "LISTENER",
+        verification_code=v_code,
+        is_active=False 
     )
 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    
+    
+    background_tasks.add_task(send_verification_email, new_user.email, v_code)
 
     return new_user
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    # Retrieve user by email
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
-    # Verify password using security logic
     if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid credentials")
+    
     
     if not user.is_active:
         raise HTTPException(
             status_code=403, 
-            detail="This account has been suspended. Please contact Vibe Garage support."
+            detail="Account inactive. Please verify your email or contact support."
         )
     
-        # Check and update monetization eligibility for artists on login
     if user.role == "ARTIST":
         check_and_update_eligibility(user.id, db)
 
-    # Generate JWT token using user UUID
     token = create_access_token(user.id)
     return {"access_token": token, "token_type": "bearer"}
 
@@ -65,24 +81,16 @@ def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 @router.post("/forgot-password")
-def forgot_password(
-    data: ForgotPasswordRequest,
-    db: Session = Depends(get_db)
-):
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
-
     if not user:
-        # Security: don’t reveal if email exists
         return {"message": "If the email exists, a reset link has been sent"}
 
     token = secrets.token_urlsafe(32)
-
     user.reset_token = token
     user.reset_token_expires = datetime.utcnow() + timedelta(minutes=30)
-
     db.commit()
 
-    # MVP: return token (later we send email)
     return {
         "message": "Password reset token generated",
         "reset_token": token
@@ -91,24 +99,71 @@ def forgot_password(
 @router.post("/reset-password")
 def reset_password(
     data: ResetPasswordRequest,
+    x_2fa_code: Optional[str] = Header(None, alias="X-2FA-Code"),
     db: Session = Depends(get_db)
 ):
-    # Retrieve user by the unique reset token
     user = db.query(User).filter(User.reset_token == data.token).first()
-
     if not user:
         raise HTTPException(status_code=400, detail="Invalid token")
 
-    # Check if the token has expired
     if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Token expired")
 
-    user.password_hash = hash_password(data.new_password)
     
-    # Clear the token fields after a successful reset
+    if getattr(user, 'two_factor_enabled', False):
+        if not x_2fa_code:
+            raise HTTPException(status_code=403, detail="2FA code required for password reset")
+        
+        totp = pyotp.TOTP(user.two_factor_secret)
+        if not totp.verify(x_2fa_code):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code")
+
+    user.password_hash = hash_password(data.new_password)
     user.reset_token = None
     user.reset_token_expires = None
-
     db.commit()
 
     return {"message": "Password reset successful"}
+
+@router.post("/verify-email")
+def verify_email(email: str, code: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.verification_code != code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    user.is_active = True 
+    user.verification_code = None
+    db.commit()
+    return {"message": "Account activated successfully"}
+
+@router.get("/2fa/setup")
+def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user.two_factor_secret:
+        current_user.two_factor_secret = pyotp.random_base32()
+        db.commit()
+
+    totp = pyotp.TOTP(current_user.two_factor_secret)
+    provisioning_uri = totp.provisioning_uri(
+        name=current_user.email, 
+        issuer_name="Vibe Garage"
+    )
+
+    img = qrcode.make(provisioning_uri)
+    buf = BytesIO()
+    img.save(buf)
+    buf.seek(0)
+    
+    return StreamingResponse(buf, media_type="image/png")
+
+@router.post("/2fa/enable")
+def enable_2fa(code: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    totp = pyotp.TOTP(current_user.two_factor_secret)
+    if not totp.verify(code):
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+    
+    current_user.two_factor_enabled = True 
+    db.commit()
+    return {"message": "2FA enabled successfully"}

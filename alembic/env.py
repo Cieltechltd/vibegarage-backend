@@ -13,13 +13,14 @@ config = context.config
 if config.config_file_name is not None and os.path.exists(config.config_file_name):
     fileConfig(config.config_file_name)
 
-# 
+
 from app.models.user import User
 from app.models.track import Track
 from app.models.play import Play
 from app.models.like import Like
 from app.models.follow import Follow
 from app.models.album import Album
+from app.models.payment import ArtistPaymentSettings
 
 
 target_metadata = Base.metadata

@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-router = APIRouter(prefix="/payments", tags=["Payments"])
+router = APIRouter(
+    prefix="/billing",
+    tags=["Billing & Subscriptions"])
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 VERIFICATION_FEE_NGN = 13000  

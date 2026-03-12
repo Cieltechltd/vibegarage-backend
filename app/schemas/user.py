@@ -17,7 +17,7 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: EmailStr
-    username: str
+    username: Optional[str] = None
     role: str
 
     class Config:

@@ -18,7 +18,7 @@ class Track(Base):
     artist = relationship("User", back_populates="tracks")
     likes_rel = relationship("Like", backref="track")
     plays_rel = relationship("Play", backref="track")
-    album_id = Column(Integer, ForeignKey("albums.id"), nullable=True)
+    album_id = Column(String, ForeignKey("albums.id"), nullable=True)
     
     
     album = relationship("Album", back_populates="tracks", overlaps="track_album")
