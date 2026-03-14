@@ -1,3 +1,4 @@
+import shim
 import os
 from fastapi import FastAPI
 from fastapi.security import HTTPBearer
@@ -6,20 +7,30 @@ from app.db.init_db import init_db
 from app.routers import (
     auth, artist, billing, track, user, 
     search, listener_dashboard, trending, 
-    album, admin, lyrics, clips, payouts
+    album, admin, lyrics, clips, payouts, library
 )
 from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
+from app.core.config import settings 
 
 load_dotenv()
 auth_scheme = HTTPBearer()
 
-if not os.path.exists("uploads"):
-    os.makedirs("uploads")
+
+def ensure_upload_dirs():
+    directories = [
+        "app/uploads/avatars",
+        "app/uploads/audio",
+        "app/uploads/covers",
+        "app/uploads/clips"
+    ]
+    for directory in directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
+    ensure_upload_dirs() 
     try:
         init_db()
         print("Database initialized successfully.")
@@ -35,8 +46,8 @@ app = FastAPI(
     lifespan=lifespan 
 )
 
-# Mounting the uploads folder
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+# --- Mounting Static Files ---
+app.mount("/static", StaticFiles(directory="app/uploads"), name="static")
 
 # Registered Routers
 app.include_router(auth.router)
@@ -52,6 +63,7 @@ app.include_router(lyrics.router)
 app.include_router(clips.router)
 app.include_router(billing.router)
 app.include_router(payouts.router)
+app.include_router(library.router)
 
 @app.get("/")
 def root():

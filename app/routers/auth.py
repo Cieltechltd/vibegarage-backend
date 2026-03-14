@@ -22,6 +22,7 @@ from app.core.deps import get_current_user
 from datetime import datetime, timedelta
 from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.monetization import check_and_update_eligibility
+from app.services.mail import send_welcome_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,7 +35,6 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
 
     v_code = generate_verification_code()
 
-   
     new_user = User(
         id=generate_vg_id("VG-U"), 
         email=user.email,
@@ -52,7 +52,12 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
     
     background_tasks.add_task(send_verification_email, new_user.email, v_code)
 
+    display_name = new_user.username or "Viber"
+    background_tasks.add_task(send_welcome_email, new_user.email, display_name)
+
     return new_user
+
+
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
@@ -62,7 +67,6 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid credentials")
-    
     
     if not user.is_active:
         raise HTTPException(
@@ -109,7 +113,6 @@ def reset_password(
     if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Token expired")
 
-    
     if getattr(user, 'two_factor_enabled', False):
         if not x_2fa_code:
             raise HTTPException(status_code=403, detail="2FA code required for password reset")

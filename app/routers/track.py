@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, Body
+import uuid
+import os
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, Body, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from app.core.deps import get_current_user
@@ -9,9 +11,8 @@ from app.services.file_storage import save_file
 from app.models.like import Like
 from app.models.user import User
 from app.models.play import Play
-from fastapi import HTTPException
-import uuid
-
+from app.models.purchase import Purchase  
+from app.core.config import settings 
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
 
@@ -20,17 +21,22 @@ def upload_track(
     title: str = Form(...),
     audio: UploadFile = File(...),
     cover: UploadFile | None = File(None),
+    price: float = Form(0.0),
+    is_for_sale: bool = Form(False),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    audio_path = save_file(audio, "audio")
+    audio_path = save_file(audio, "audio") 
     cover_path = save_file(cover, "covers") if cover else None
 
     track = Track(
+        id=str(uuid.uuid4()), 
         title=title,
         audio_path=audio_path,
         cover_path=cover_path,
-        artist_id=current_user.id
+        artist_id=current_user.id,
+        price=price, 
+        is_for_sale=is_for_sale 
     )
 
     db.add(track)
@@ -39,38 +45,53 @@ def upload_track(
 
     return track
 
-
-@router.get("/my", response_model=list[TrackOut])
-def get_my_tracks(
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    return db.query(Track).filter(
-        Track.artist_id == current_user.id
-    ).all()
-
-# Removed the duplicate my_tracks function to keep code clean
-
 @router.get("/stream/{track_id}")
 def stream_track(
     track_id: str, 
-    ad_viewed: bool = Query(False), # Captured from the frontend signal
+    ad_viewed: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) # Now requires user for tracking
+    current_user: User = Depends(get_current_user)
 ):
-    # 1. Verify track and get the artist (owner)
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
 
-    # 2. Logic: Only record as monetized if ad was shown AND artist is eligible
+  
+    user_owns_track = False
+    
+   
+    if current_user.id == track.artist_id:
+        user_owns_track = True
+    
+
+    elif getattr(track, 'is_for_sale', False):
+        purchase = db.query(Purchase).filter(
+            Purchase.track_id == track_id,
+            Purchase.user_id == current_user.id
+        ).first()
+        if purchase:
+            user_owns_track = True
+    else:
+        user_owns_track = True
+
+    
+    final_path = track.audio_path
+    if getattr(track, 'is_for_sale', False) and not user_owns_track:
+       
+        preview_filename = f"preview_{os.path.basename(track.audio_path)}"
+        final_path = os.path.join("app/uploads/previews", preview_filename)
+        
+        
+        if not os.path.exists(final_path):
+             raise HTTPException(status_code=402, detail="Purchase required for full stream")
+    
+
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
         is_monetized = True
 
-    # 3. Create detailed Play record
     new_play = Play(
         id=str(uuid.uuid4()),
         user_id=current_user.id,
@@ -79,14 +100,49 @@ def stream_track(
     )
     db.add(new_play)
 
-    # 4. Increment legacy play counter
     track.plays += 1
     db.commit()
 
     return FileResponse(
-        path=track.audio_path,
+        path=final_path,
         media_type="audio/mpeg"
     )
+
+
+@router.get("/download/{track_id}")
+def download_track(
+    track_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Only allows downloading if the track is free or already purchased."""
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+
+    is_owner = db.query(Purchase).filter(
+        Purchase.track_id == track_id,
+        Purchase.user_id == current_user.id
+    ).first() is not None or current_user.id == track.artist_id
+
+    if getattr(track, 'is_for_sale', False) and not is_owner:
+        raise HTTPException(status_code=403, detail="Purchase required to download")
+
+    return FileResponse(
+        path=track.audio_path,
+        media_type="audio/mpeg",
+        filename=f"{track.title}.mp3" 
+    )
+
+
+
+@router.get("/my", response_model=list[TrackOut])
+def get_my_tracks(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    return db.query(Track).filter(Track.artist_id == current_user.id).all()
 
 @router.post("/{track_id}/like")
 def like_track(
@@ -116,7 +172,6 @@ def like_track(
     db.commit()
     return {"status": action, "likes": track.likes}
 
-
 @router.get("/public/latest", response_model=list[PublicTrackOut])
 def latest_tracks(db: Session = Depends(get_db)):
     tracks = (
@@ -137,7 +192,6 @@ def latest_tracks(db: Session = Depends(get_db)):
         }
         for track, user in tracks
     ]
-
 
 @router.get("/public/trending", response_model=list[PublicTrackOut])
 def trending_tracks(db: Session = Depends(get_db)):

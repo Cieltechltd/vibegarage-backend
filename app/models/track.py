@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer
+from sqlalchemy import Boolean, Column, String, ForeignKey, Integer, Numeric
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 import uuid
@@ -19,6 +19,8 @@ class Track(Base):
     likes_rel = relationship("Like", backref="track")
     plays_rel = relationship("Play", backref="track")
     album_id = Column(String, ForeignKey("albums.id"), nullable=True)
+    price = Column(Numeric(10, 2), default=0.00) 
+    is_for_sale = Column(Boolean, default=False)
     
     
     album = relationship("Album", back_populates="tracks", overlaps="track_album")

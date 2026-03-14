@@ -6,13 +6,17 @@ from app.db.database import Base
 class TransactionType(str, enum.Enum):
     EARNING = "EARNING"
     WITHDRAWAL = "WITHDRAWAL"
+    PURCHASE = "PURCHASE"  
 
 class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, ForeignKey("users.id"), index=True)
+    track_id = Column(String, ForeignKey("tracks.id"), nullable=True)
     amount = Column(Float, nullable=False)
     type = Column(Enum(TransactionType))
+    status = Column(String, default="pending")  
     description = Column(String, nullable=True)
+    reference = Column(String, unique=True, index=True) # Paystack reference
     created_at = Column(DateTime, default=datetime.utcnow)

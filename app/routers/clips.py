@@ -9,13 +9,12 @@ from app.core.artist_deps import verified_artist_required
 from app.db.database import get_db
 from app.models.user import User
 from app.models.clip import GarageClip
+from app.core.config import settings 
 
 router = APIRouter(prefix="/clips", tags=["Garage Clips"])
 
-UPLOAD_DIR = "uploads/clips"
 
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
+UPLOAD_DIR = settings.UPLOAD_CLIP_DIR
 
 def generate_secure_filename(artist_id: str, original_name: str):
     """Generates a unique filename: artistID_timestamp_random.ext"""
@@ -35,20 +34,21 @@ async def upload_garage_clip(
     if file.content_type not in ["video/mp4", "video/quicktime"]:
         raise HTTPException(status_code=400, detail="Invalid video format. Use MP4 or MOV.")
 
+   
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     
     secure_name = generate_secure_filename(current_artist.id, file.filename)
     file_path = os.path.join(UPLOAD_DIR, secure_name)
 
-    
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
 
-    video_url = f"https://vibegarage.app/static/clips/{secure_name}"
+   
+    video_url = f"{settings.BASE_URL}/static/clips/{secure_name}"
 
-    
     new_clip = GarageClip(
         id=str(uuid.uuid4()),
         artist_id=current_artist.id,

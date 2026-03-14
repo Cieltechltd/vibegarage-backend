@@ -8,6 +8,10 @@ class TrackOut(BaseModel):
     title: str
     audio_path: str
     cover_path: str | None
+    price: float = 0.0
+    is_for_sale: bool = False
+    plays: int = 0
+    likes: int = 0
 
     class Config:
         from_attributes = True
@@ -19,6 +23,8 @@ class PublicTrackOut(BaseModel):
     plays: int
     likes: int
     artist_name: str
+    price: float = 0.0
+    is_for_sale: bool = False
 
     class Config:
         from_attributes = True

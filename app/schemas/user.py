@@ -18,6 +18,7 @@ class UserResponse(BaseModel):
     id: str
     email: EmailStr
     username: Optional[str] = None
+    is_verified_artist: bool
     role: str
 
     class Config:

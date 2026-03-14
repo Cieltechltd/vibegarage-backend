@@ -4,7 +4,7 @@ from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.user import User
-from app.core.security import SECRET_KEY, ALGORITHM
+from app.core.config import settings 
 
 
 security = HTTPBearer()
@@ -19,14 +19,18 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        
-        payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token.credentials, 
+            settings.SECRET_KEY, 
+            algorithms=[settings.ALGORITHM]
+        )
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
 
+    
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception

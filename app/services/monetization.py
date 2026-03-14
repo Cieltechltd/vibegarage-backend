@@ -77,5 +77,17 @@ def calculate_artist_earnings(artist_id: str, db: Session) -> float:
     )
     
     return float(monetized_plays_count * NAIRA_PER_STREAM)
+
+def mark_artist_as_verified(db: Session, user_id: str):
+    """
+    Automatically flips the verification switch and 
+    prepares the maroon badge for the profile.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if user and user.role == "ARTIST":
+        user.is_verified_artist = True
+        db.commit()
+        return True
+    return False
     
    

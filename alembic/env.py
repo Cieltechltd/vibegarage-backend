@@ -21,6 +21,7 @@ from app.models.like import Like
 from app.models.follow import Follow
 from app.models.album import Album
 from app.models.payment import ArtistPaymentSettings
+from app.models.artist_profile import ArtistProfile
 
 
 target_metadata = Base.metadata
