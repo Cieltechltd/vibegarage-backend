@@ -16,7 +16,18 @@ async def upload_lyrics(
     current_artist: User = Depends(verified_artist_required),
     db: Session = Depends(get_db)
 ):
+    """
+    Premium feature: Allows Verified Artists with the Maroon Badge 
+    to add or edit lyrics for their tracks.
+    """
    
+    if not getattr(current_artist, "is_verified_artist", False):
+        raise HTTPException(
+            status_code=403, 
+            detail="The Maroon Badge is required to add lyrics. Please visit the Billing section to verify."
+        )
+
+    
     track = db.query(Track).filter(
         Track.id == track_id, 
         Track.artist_id == current_artist.id
