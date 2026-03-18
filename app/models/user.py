@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float, Text
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float, Text, Date
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
@@ -13,6 +13,8 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: generate_vg_id("VG-U"))
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    full_name = Column(String, nullable=False)
+    dob = Column(Date, nullable=True)
     username = Column(String, unique=True, index=True, nullable=True)
     stage_name = Column(String, nullable=True)
     is_artist = Column(Boolean, default=False)

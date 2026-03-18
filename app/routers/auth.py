@@ -40,6 +40,7 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
         email=user.email,
         username=getattr(user, 'username', None),
         password_hash=hash_password(user.password),
+        dob=user.dob,
         role=user.role.value if hasattr(user, 'role') else "LISTENER",
         verification_code=v_code,
         is_active=False 

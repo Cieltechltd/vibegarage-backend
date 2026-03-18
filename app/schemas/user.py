@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+from datetime import date
 from typing import Optional
 from enum import Enum
 
@@ -12,6 +13,8 @@ class UserCreate(BaseModel):
     password: str
     username: str
     full_name: Optional[str] = None
+    stage_name: str | None = None
+    dob: date = Field(..., description="User's date of birth in YYYY-MM-DD format")
     role: UserRole = UserRole.LISTENER # Default to LISTENER, can be overridden to ARTIST during registration
 
 class UserResponse(BaseModel):

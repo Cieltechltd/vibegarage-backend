@@ -13,7 +13,6 @@ from app.services.wallet import create_payout_request
 from app.services.notifications import send_payout_notification
 from app.core.security import generate_vg_id 
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -29,18 +28,31 @@ def save_payment_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Save or update artist bank/PayPal details with targeted 2FA protection."""
+    
     if not current_user.is_artist:
         raise HTTPException(status_code=403, detail="Only artists can configure payout settings")
 
-  
+    
+    if settings_in.paypal_email and settings_in.paypal_email != current_user.email:
+        raise HTTPException(
+            status_code=400, 
+            detail="PayPal email must match your registered Vibe Garage email for security."
+        )
+
+    
+    if settings_in.bank_account_name:
+        registered_name = getattr(current_user, 'full_name', "").lower()
+        if settings_in.bank_account_name.lower() != registered_name:
+            raise HTTPException(
+                status_code=400, 
+                detail="Bank account name must match your registered legal full name."
+            )
+
+    
     if getattr(current_user, 'two_factor_enabled', False):
         if not x_2fa_code:
             logger.warning(f"2FA check failed: Missing code for user {current_user.id}")
-            raise HTTPException(
-                status_code=403, 
-                detail="2FA code required to modify payment settings"
-            )
+            raise HTTPException(status_code=403, detail="2FA code required to modify payment settings")
         
         totp = pyotp.TOTP(current_user.two_factor_secret)
         if not totp.verify(x_2fa_code):
@@ -59,7 +71,6 @@ def save_payment_settings(
         logger.info(f"Payment settings updated for artist {current_user.id}")
         return existing_settings
     
-   
     new_settings = ArtistPaymentSettings(
         id=generate_vg_id("VG-P"),
         user_id=current_user.id,
@@ -78,7 +89,7 @@ def request_withdrawal(
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
 ):
-    """Submit a request to withdraw earned funds."""
+    
     if not getattr(current_user, 'monetization_eligible', False):
         logger.warning(f"Unauthorized withdrawal attempt by ineligible user {current_user.id}")
         raise HTTPException(
@@ -91,7 +102,6 @@ def request_withdrawal(
     if error:
         logger.error(f"Payout request failed for user {current_user.id}: {error}")
         raise HTTPException(status_code=400, detail=error)
-    
     
     background_tasks.add_task(
         send_payout_notification,

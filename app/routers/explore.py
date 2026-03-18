@@ -3,23 +3,66 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, desc
 from typing import List, Optional
 from app.db.database import get_db
+from app.core.deps import get_current_user
 from app.models.track import Track
 from app.models.user import User
 from app.models.follow import Follow
 from app.models.clip import GarageClip
-from app.schemas.track import TrackPublic
+from app.schemas.track import TrackPublic, TrackOut 
 from app.schemas.artist import ArtistPublic
 
 router = APIRouter(prefix="/explore", tags=["Explore & Search"])
+
+
+
+@router.get("/feed", response_model=List[TrackOut])
+def get_personalized_feed(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Shows latest tracks from followed artists. 
+    Falls back to trending tracks if the feed is empty.
+    """
+    
+    followed_ids = db.query(Follow.artist_id).filter(
+        Follow.follower_id == current_user.id
+    ).all()
+    
+    
+    ids = [a_id for (a_id,) in followed_ids]
+
+    social_tracks = []
+    if ids:
+        
+        social_tracks = (
+            db.query(Track)
+            .filter(Track.artist_id.in_(ids))
+            .order_by(Track.id.desc())
+            .limit(20)
+            .all()
+        )
+
+   
+    if not social_tracks:
+        trending_tracks = (
+            db.query(Track)
+            .order_by(Track.plays.desc())
+            .limit(20)
+            .all()
+        )
+        return trending_tracks
+
+    return social_tracks
+
+
 
 @router.get("/search")
 def global_search(
     q: str = Query(..., min_length=1),
     db: Session = Depends(get_db)
 ):
-    """
-    Unified global search across Tracks, Artists, and Garage Clips.
-    """
+   
     track_results = (
         db.query(Track)
         .join(User, Track.artist_id == User.id)
@@ -27,7 +70,6 @@ def global_search(
         .limit(10).all()
     )
 
-    
     artist_results = (
         db.query(User)
         .filter(
@@ -37,7 +79,6 @@ def global_search(
         .limit(10).all()
     )
 
-    
     clip_results = (
         db.query(GarageClip)
         .join(User, GarageClip.artist_id == User.id)
@@ -52,8 +93,8 @@ def global_search(
                 TrackPublic(
                     id=t.id, 
                     title=t.title, 
-                    play_count=t.play_count, 
-                    like_count=t.like_count,
+                    play_count=getattr(t, 'plays', 0), 
+                    like_count=getattr(t, 'likes', 0), 
                     artist=ArtistPublic(id=t.artist.id, stage_name=t.artist.stage_name)
                 ) for t in track_results
             ],
@@ -70,7 +111,7 @@ def global_search(
                     "video_url": c.video_url,
                     "caption": c.caption,
                     "artist_name": c.artist.stage_name or c.artist.username,
-                    "is_verified": c.artist.is_verified_artist #
+                    "is_verified": c.artist.is_verified_artist 
                 } for c in clip_results
             ]
         }
