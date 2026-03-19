@@ -20,10 +20,7 @@ def get_personalized_feed(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Shows latest tracks from followed artists. 
-    Falls back to trending tracks if the feed is empty.
-    """
+   
     
     followed_ids = db.query(Follow.artist_id).filter(
         Follow.follower_id == current_user.id

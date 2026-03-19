@@ -23,11 +23,25 @@ from datetime import datetime, timedelta
 from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.monetization import check_and_update_eligibility
 from app.services.mail import send_welcome_email
+from app.routers.admin import is_feature_enabled
+
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=UserResponse)
 def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    if is_feature_enabled(db, "maintenance_mode"):
+        raise HTTPException(
+            status_code=503, 
+            detail="Vibe Garage is currently under maintenance. Please try again later."
+        )
+    
+    if is_feature_enabled(db, "disable_signups"):
+        raise HTTPException(
+            status_code=403, 
+            detail="New registrations are temporarily closed."
+        )
     
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:

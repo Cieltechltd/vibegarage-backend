@@ -13,8 +13,11 @@ from app.models.like import Like
 from app.models.user import User
 from app.models.play import Play
 from app.models.purchase import Purchase  
-from app.models.download import Download # Ensure this model exists in app/models/download.py
+from app.models.download import Download 
 from app.core.config import settings 
+from app.routers.admin import is_feature_enabled
+
+
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
 
@@ -28,7 +31,12 @@ def upload_track(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user) 
 ):
-    """Integrated Artist Role Check from previous discussion."""
+    if is_feature_enabled(db, "maintenance_mode") or is_feature_enabled(db, "disable_uploads"):
+        raise HTTPException(
+            status_code=503, 
+            detail="Uploads are temporarily disabled by the administrator."
+        )
+
     if current_user.role.lower() != "artist":
         raise HTTPException(
             status_code=403, 
@@ -60,7 +68,7 @@ def stream_track(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Existing streaming logic with purchase and preview checks."""
+    
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -110,9 +118,7 @@ def download_track(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Validates ownership and logs the download event for the User Library.
-    """
+    
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
