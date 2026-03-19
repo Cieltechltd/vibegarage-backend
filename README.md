@@ -1,193 +1,149 @@
-# VibeGarage Backend
 
-VibeGarage is a modern music streaming platform that allows artists to upload music, grow their audience, and earn revenue from streams while listeners discover new music.
 
-This repository contains the backend API that powers the VibeGarage platform.
+***
 
-The backend is built using FastAPI and provides APIs for artist dashboards, listener experiences, analytics, streaming, and monetization.
+```markdown
+# 🎸 Vibe Garage Backend API Documentation
 
----
-
-# Tech Stack
-
-Backend Framework
-FastAPI
-
-Language
-Python
-
-Database
-PostgreSQL
-
-ORM
-SQLAlchemy
-
-Authentication
-JWT (JSON Web Tokens)
-
-File Storage
-Local uploads (audio files, images)
-
-Migrations
-Alembic
-
-Server
-Uvicorn / ASGI
+Welcome to the **Vibe Garage** Core. This API powers the intersection of music discovery, artist branding, and social engagement.
 
 ---
 
-# Project Structure
+## 🛠 Project Workflow & Architecture
 
-```
-app/
-│
-├── main.py
-│
-├── core/
-│   ├── config.py
-│   ├── security.py
-│
-├── db/
-│   ├── database.py
-│
-├── models/
-│   ├── user.py
-│   ├── track.py
-│   ├── album.py
-│
-├── schemas/
-│   ├── user.py
-│   ├── track.py
-│   ├── album.py
-│
-├── routers/
-│   ├── auth.py
-│   ├── user.py
-│   ├── artist.py
-│   ├── track.py
-│   ├── album.py
-│   ├── search.py
-│   ├── trending.py
-│   ├── clips.py
-│   ├── lyrics.py
-│   ├── payments.py
-│   ├── payouts.py
-│   └── admin.py
-│
-├── services/
-│
-└── uploads/
-```
+1. **Authentication**: Users/Artists authenticate via JWT.
+2. **Discovery**: The `Garage Feed` (Video Clips) and `Trending` (7-day play count) drive user engagement.
+3. **Monetization (Preview Logic)**:
+   - Tracks can be marked as "Premium/Paid".
+   - The API provides a `preview_url` (30-second snippet) for unpaid users and a `full_url` for authorized/paid users.
+4. **Verification**: 
+   - Not a "Blue Check". Verification is a custom Vibe Garage status (`is_verified`).
+   - Verified artists get priority sorting in the Discovery Feed.
+5. **Marketing**: Every artist has a dedicated Public Storefront with Open Graph meta-tags for social sharing and a downloadable QR code.
 
 ---
 
-# Installation
+## 🔐 Authentication & Roles
 
-Clone the repository
+| Role | Permissions |
+| :--- | :--- |
+| **USER** | Stream music, like/comment, follow artists, view public profiles. |
+| **ARTIST** | Upload tracks/clips, manage storefront, view personal analytics. |
+| **ADMIN** | Moderation, system configuration, payout approvals, global stats. |
 
-```
-git clone https://github.com/Cieltechltd/vibegarage-backend
-cd vibegarage-backend
-```
-
-Create virtual environment
-
-```
-python3 -m venv venv
-source venv/bin/activate
-```
-
-Install dependencies
-
-```
-pip install -r requirements.txt
-```
-
-Run database migrations
-
-```
-alembic upgrade head
-```
-
-Run the server
-
-```
-uvicorn app.main:app --reload
-```
-
-Server will start at
-
-```
-http://127.0.0.1:8000
-```
+**Headers required for protected routes:** `Authorization: Bearer <JWT_TOKEN>`
 
 ---
 
-# API Documentation
+## 📡 API Endpoints Reference
 
-Swagger UI
+### 1. Discovery & Social Feed
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/discovery/feed` | The "TikTok-style" vertical video feed. Prioritizes verified artists. |
+| `GET` | `/discovery/trending` | Top 10 tracks by play count in the last 7 days. |
+| `GET` | `/discovery/new-releases` | 10 most recently uploaded tracks. |
 
+### 2. Public Artist Profiles (No Auth Required)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/public/artists/{username}` | Returns OG metadata for social sharing + auto-redirects to UI. |
+| `GET` | `/public/artists/{username}/data` | Returns raw JSON (Bio, Avatar, Stats, Tracklist). |
+| `GET` | `/public/artists/{username}/qrcode` | Returns a PNG QR Code leading to the profile. |
+
+### 3. Track & Content Management
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/tracks/{track_id}` | Fetches track details including preview/full stream logic. |
+| `POST` | `/tracks/play` | Logs a play event (Required for trending algorithm). |
+
+---
+
+## 🎵 Handling Paid Song Previews (Frontend Logic)
+
+When fetching a track, the API returns two specific URL fields. The frontend **MUST** check the user's access status before deciding which to play.
+
+**Example Track Response:**
+```json
+{
+  "id": "uuid-123",
+  "title": "Summer Vibe",
+  "is_premium": true,
+  "preview_url": "[https://cdn.vibegarage.app/previews/uuid-123.mp3](https://cdn.vibegarage.app/previews/uuid-123.mp3)",
+  "full_url": "[https://cdn.vibegarage.app/full/uuid-123.mp3](https://cdn.vibegarage.app/full/uuid-123.mp3)",
+  "has_access": false
+}
 ```
-/docs
+
+- **If `is_premium` is `false`**: Play `full_url`.
+- **If `is_premium` is `true` AND `has_access` is `false`**: Play `preview_url` (30s) and show "Buy to unlock full song" UI.
+- **If `is_premium` is `true` AND `has_access` is `true`**: Play `full_url`.
+
+---
+
+## ✅ The "Vibe Garage" Verification Badge
+
+Our verification is **NOT** a blue checkmark. 
+- Backend Field: `is_verified` (boolean).
+- **Frontend Instruction**: When `is_verified` is `true`, render the **Vibe Garage Custom Stamp** (e.g., Gold Vinyl icon or VG Stamp) over the artist's avatar. Do not use standard social media icons.
+
+---
+
+## 📊 Core Data Models
+
+### Artist Profile (`/public/artists/{username}/data`)
+```json
+{
+  "stage_name": "Utee Jacob",
+  "avatar": "https://...",
+  "is_verified": true,
+  "bio": "Software Engineer & Music Visionary",
+  "stats": {
+    "total_streams": 45800,
+    "track_count": 12
+  },
+  "joined_date": "January 2026"
+}
+```
+
+### Garage Clip (Feed Item)
+```json
+{
+  "clip_id": 50,
+  "video_url": "https://...",
+  "caption": "New single dropping soon!",
+  "artist": {
+    "username": "uteejacob",
+    "is_verified": true,
+    "avatar": "https://..."
+  },
+  "meta": {
+    "has_lyrics": true,
+    "track_id": "uuid-789"
+  }
+}
 ```
 
 ---
 
-# Core Features
-
-Artist System
-Artists can upload tracks, create albums, add lyrics and monitor performance.
-
-Music Upload
-Supports audio uploads with metadata such as genre, title and cover art.
-
-Search
-Users can search artists, tracks and albums.
-
-Trending System
-Tracks trending music across the platform.
-
-Music Clips
-Short-form music content similar to TikTok clips.
-
-Analytics
-Artists can view engagement metrics such as streams and followers.
-
-Monetization
-Artists earn revenue through streams and can request payouts.
-
-Admin Panel
-Admins can manage users, artists, tracks and platform statistics.
+## ⚠️ Error Handling
+- `401 Unauthorized`: Token missing or expired.
+- `402 Payment Required`: Attempted to access `full_url` on a premium track without ownership.
+- `404 Not Found`: Artist or Track does not exist.
+- `422 Unprocessable Entity`: Check `detail` for field validation errors.
 
 ---
 
-# Environment Variables
-
-Create a `.env` file
-
+## 🛠 Installation for Local Testing
+1. Ensure `Python 3.10+` and `PostgreSQL` are installed.
+2. Install dependencies: `pip install -r requirements.txt`
+3. Run migrations: `alembic upgrade head`
+4. Start Server: `uvicorn app.main:app --reload`
 ```
 
-```
 
----
 
-# Documentation
 
-Detailed developer documentation is available in the `/docs` directory.
-
-API Reference
-docs/API_REFERENCE.md
-
-Frontend Integration Guide
-docs/FRONTEND_GUIDE.md
-
-System Architecture
-docs/SYSTEM_ARCHITECTURE.md
-
-Database Overview
-docs/DATABASE_OVERVIEW.md
-
----
 
 # License
 
