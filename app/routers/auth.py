@@ -15,14 +15,13 @@ from app.core.security import (
     create_access_token, 
     generate_vg_id,
     generate_verification_code,
-    send_verification_email
+    send_welcome_verification_email  
 ) 
 from app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse
 from app.core.deps import get_current_user
 from datetime import datetime, timedelta
 from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.monetization import check_and_update_eligibility
-from app.services.mail import send_welcome_email
 from app.routers.admin import is_feature_enabled
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,19 +41,16 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
             detail="New registrations are temporarily closed."
         )
     
-    
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
     v_code = generate_verification_code()
 
-    
     requested_name = getattr(user, 'full_name', None)
     requested_username = getattr(user, 'username', None)
     fallback_name = requested_name or requested_username or "Viber"
 
-  
     new_user = User(
         id=generate_vg_id("VG-U"), 
         email=user.email,
@@ -71,11 +67,13 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
     db.commit()
     db.refresh(new_user)
     
-    
-    background_tasks.add_task(send_verification_email, new_user.email, v_code)
-
-    display_name = new_user.username or fallback_name
-    background_tasks.add_task(send_welcome_email, new_user.email, display_name)
+   
+    background_tasks.add_task(
+        send_welcome_verification_email, 
+        new_user.email, 
+        new_user.username or fallback_name, 
+        v_code
+    )
 
     return new_user
 

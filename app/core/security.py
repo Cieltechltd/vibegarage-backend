@@ -32,7 +32,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(user_id: str):
-    
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": user_id,
@@ -41,18 +40,29 @@ def create_access_token(user_id: str):
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 def generate_vg_id(prefix: str = "VG-U") -> str:
+    
     unique_suffix = str(uuid.uuid4())[:8] 
     return f"{prefix}-{unique_suffix}"
 
 def generate_verification_code() -> str:
     return f"{random.randint(100000, 999999)}"
 
-def send_verification_email(email: str, code: str):
+def send_welcome_verification_email(email: str, username: str, code: str):
+   
+    subject = "Welcome to the Garage | Verify Your Account"
+    
+    body = f"""
+    Hello {username},
+
+    Welcome to Vibe Garage. 
+
+    To complete your registration and start streaming, please use the activation code below:
+    
+    CODE: {code}
+
+    Stay tuned.
+    The Vibe Garage Team
     """
-    Sends verification email using SMTP credentials from settings.
-    """
-    subject = "Verify your Vibe Garage Account"
-    body = f"Welcome to Vibe Garage! Your activation code is: {code} Thank you for joining us. Please enter this code in the app to activate your account."
 
     msg = MIMEMultipart()
     msg['From'] = f"Vibe Garage <{settings.SMTP_USER}>"
@@ -61,21 +71,18 @@ def send_verification_email(email: str, code: str):
     msg.attach(MIMEText(body, 'plain'))
 
     try:
-        
-        server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
-        server.starttls() 
-        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        logger.info(f"Verification email sent successfully to {email}")
+        with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
+            server.starttls() 
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+        logger.info(f"Consolidated Welcome/Verification email sent to {username} ({email})")
         return True
     except Exception as e:
         logger.error(f"Failed to send email to {email}. Error: {str(e)}", exc_info=True)
         return False
-    
-    
+
 def verify_paystack_signature(payload: bytes, signature: str) -> bool:
-    """Verifies that the webhook request is genuinely from Paystack."""
+    
     computed_signature = hmac.new(
         settings.PAYSTACK_SECRET_KEY.encode('utf-8'),
         payload,
