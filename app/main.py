@@ -13,10 +13,11 @@ from app.routers import (
 from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings 
+from app.db.database import Base 
+from app.db.session import engine 
 
 load_dotenv()
 auth_scheme = HTTPBearer()
-
 
 def ensure_upload_dirs():
     directories = [
@@ -33,8 +34,9 @@ def ensure_upload_dirs():
 async def lifespan(app: FastAPI):
     ensure_upload_dirs() 
     try:
+        Base.metadata.create_all(bind=engine)
         init_db()
-        print("Database initialized successfully.")
+        print("Database and tables initialized successfully on Supabase.")
     except Exception as e:
         print(f"Error initializing database: {e}")
     yield
@@ -47,7 +49,7 @@ app = FastAPI(
     lifespan=lifespan 
 )
 
-# --- Mounting Static Files ---
+
 app.mount("/static", StaticFiles(directory="app/uploads"), name="static")
 
 # Registered Routers
@@ -69,8 +71,6 @@ app.include_router(lyrics.router)
 app.include_router(clips.router)
 app.include_router(billing.router)
 app.include_router(payouts.router)
-
-
 
 @app.get("/")
 def root():
