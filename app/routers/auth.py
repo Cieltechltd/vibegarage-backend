@@ -25,12 +25,11 @@ from app.services.monetization import check_and_update_eligibility
 from app.services.mail import send_welcome_email
 from app.routers.admin import is_feature_enabled
 
-
-
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=UserResponse)
 def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    
     if is_feature_enabled(db, "maintenance_mode"):
         raise HTTPException(
             status_code=503, 
@@ -43,16 +42,24 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
             detail="New registrations are temporarily closed."
         )
     
+    
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
     v_code = generate_verification_code()
 
+    
+    requested_name = getattr(user, 'full_name', None)
+    requested_username = getattr(user, 'username', None)
+    fallback_name = requested_name or requested_username or "Viber"
+
+  
     new_user = User(
         id=generate_vg_id("VG-U"), 
         email=user.email,
-        username=getattr(user, 'username', None),
+        full_name=fallback_name, 
+        username=requested_username,
         password_hash=hash_password(user.password),
         dob=user.dob,
         role=user.role.value if hasattr(user, 'role') else "LISTENER",
@@ -67,12 +74,10 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
     
     background_tasks.add_task(send_verification_email, new_user.email, v_code)
 
-    display_name = new_user.username or "Viber"
+    display_name = new_user.username or fallback_name
     background_tasks.add_task(send_welcome_email, new_user.email, display_name)
 
     return new_user
-
-
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
