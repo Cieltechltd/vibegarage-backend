@@ -40,7 +40,6 @@ def create_access_token(user_id: str):
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 def generate_vg_id(prefix: str = "VG-U") -> str:
-    
     unique_suffix = str(uuid.uuid4())[:8] 
     return f"{prefix}-{unique_suffix}"
 
@@ -48,7 +47,7 @@ def generate_verification_code() -> str:
     return f"{random.randint(100000, 999999)}"
 
 def send_welcome_verification_email(email: str, username: str, code: str):
-   
+    
     subject = "Welcome to the Garage | Verify Your Account"
     
     body = f"""
@@ -71,8 +70,7 @@ def send_welcome_verification_email(email: str, username: str, code: str):
     msg.attach(MIMEText(body, 'plain'))
 
     try:
-        with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
-            server.starttls() 
+        with smtplib.SMTP_SSL(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
         logger.info(f"Consolidated Welcome/Verification email sent to {username} ({email})")
@@ -82,7 +80,6 @@ def send_welcome_verification_email(email: str, username: str, code: str):
         return False
 
 def verify_paystack_signature(payload: bytes, signature: str) -> bool:
-    
     computed_signature = hmac.new(
         settings.PAYSTACK_SECRET_KEY.encode('utf-8'),
         payload,
