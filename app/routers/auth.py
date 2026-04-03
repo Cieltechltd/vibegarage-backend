@@ -181,6 +181,13 @@ def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depe
 
 @router.post("/2fa/enable")
 def enable_2fa(code: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    
+    if not current_user.two_factor_secret:
+        raise HTTPException(
+            status_code=400, 
+            detail="2FA setup has not been initiated. Please visit /auth/2fa/setup first."
+        )
+    
     totp = pyotp.TOTP(current_user.two_factor_secret)
     if not totp.verify(code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
