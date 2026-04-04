@@ -72,19 +72,24 @@ def send_welcome_verification_email(email: str, username: str, code: str):
 
     try:
         orig_getaddrinfo = socket.getaddrinfo
-
         def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
             return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-
         socket.getaddrinfo = ipv4_getaddrinfo
-        with smtplib.SMTP_SSL(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.send_message(msg)
+        if int(settings.SMTP_PORT) == 587:
+            with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
+                server.starttls()
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP_SSL(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
         socket.getaddrinfo = orig_getaddrinfo
         
         logger.info(f"Consolidated Welcome/Verification email sent to {username} ({email})")
         return True
     except Exception as e:
+        socket.getaddrinfo = orig_getaddrinfo
         logger.error(f"Failed to send email to {email}. Error: {str(e)}", exc_info=True)
         return False
 
