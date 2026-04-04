@@ -28,7 +28,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=UserResponse)
 def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    
+   
     if is_feature_enabled(db, "maintenance_mode"):
         raise HTTPException(
             status_code=503, 
@@ -41,16 +41,18 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
             detail="New registrations are temporarily closed."
         )
     
+    
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    
     v_code = generate_verification_code()
-
     requested_name = getattr(user, 'full_name', None)
     requested_username = getattr(user, 'username', None)
     fallback_name = requested_name or requested_username or "Viber"
 
+   
     new_user = User(
         id=generate_vg_id("VG-U"), 
         email=user.email,
@@ -92,6 +94,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             detail="Account inactive. Please verify your email or contact support."
         )
     
+   
     if user.role == "ARTIST":
         check_and_update_eligibility(user.id, db)
 
@@ -131,6 +134,7 @@ def reset_password(
     if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Token expired")
 
+   
     if getattr(user, 'two_factor_enabled', False):
         if not x_2fa_code:
             raise HTTPException(status_code=403, detail="2FA code required for password reset")
@@ -181,7 +185,6 @@ def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depe
 
 @router.post("/2fa/enable")
 def enable_2fa(code: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    
     if not current_user.two_factor_secret:
         raise HTTPException(
             status_code=400, 
