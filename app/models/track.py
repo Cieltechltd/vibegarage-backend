@@ -18,7 +18,7 @@ class Track(Base):
     artist = relationship("User", back_populates="tracks")
     likes_rel = relationship("Like", backref="track")
     plays_rel = relationship("Play", backref="track")
-    album_id = Column(String, ForeignKey("albums.id"), nullable=True)
+    album_id = Column(UUID(as_uuid=True), ForeignKey("albums.id"), nullable=True)
     price = Column(Numeric(10, 2), default=0.00) 
     is_for_sale = Column(Boolean, default=False)
     

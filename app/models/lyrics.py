@@ -13,6 +13,6 @@ class Lyric(Base):
     __tablename__ = "lyrics"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    track_id = Column(String, ForeignKey("tracks.id"), unique=True)
+    track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"), unique=True)
     # lyric_type = Column(Enum(LyricType), default=LyricType.PLAIN)
     content = Column(Text, nullable=False) 
