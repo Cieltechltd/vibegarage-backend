@@ -7,6 +7,7 @@ import logging
 import hmac
 import hashlib
 import socket  
+import requests
 from pathlib import Path
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
@@ -70,31 +71,45 @@ def send_welcome_verification_email(email: str, username: str, code: str):
     msg.attach(MIMEText(body, 'plain'))
     orig_getaddrinfo = socket.getaddrinfo
 
+
+
+def send_welcome_verification_email(email: str, username: str, code: str):
+    url = "https://api.brevo.com/v3/smtp/email"
+    
+    payload = {
+        "sender": {"name": "Vibe Garage", "email": "hello@vibegarage.app"},
+        "to": [{"email": email, "name": username}],
+        "subject": "Welcome to the Garage | Verify Your Account",
+        "htmlContent": f"""
+            <html>
+                <body style="font-family: sans-serif; background-color: #121212; color: #ffffff; padding: 20px;">
+                    <h2 style="color: #ff3366;">Welcome to the Garage, {username}!</h2>
+                    <p>To complete yhur registration and start streaming, use the code below:</p>
+                    <div style="background: #1e1e1e; padding: 15px; border-radius: 8px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #00ffcc; border: 1px solid #333;">
+                        {code}
+                    </div>
+                    <p>Stay tuned.<br>The Vibe Garage Team</p>
+                </body>
+            </html>
+        """
+    }
+    
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "api-key": os.getenv("BREVO_API_KEY") 
+    }
+
     try:
-        orig_getaddrinfo = socket.getaddrinfo
-        def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-            return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        socket.getaddrinfo = ipv4_getaddrinfo
-        
-        smtp_port = int(settings.SMTP_PORT)
-
-        
-        if smtp_port == 587:
-            with smtplib.SMTP(settings.SMTP_SERVER, smtp_port, timeout=20) as server:
-                server.starttls() 
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code in [200, 201]:
+            logger.info(f"Brevo API: Verification email sent to {email}")
+            return True
         else:
-            with smtplib.SMTP_SSL(settings.SMTP_SERVER, smtp_port, timeout=20) as server:
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-
-        socket.getaddrinfo = orig_getaddrinfo
-        logger.info(f"Email sent successfully to {email}")
-        return True
+            logger.error(f"Brevo API Error: {response.text}")
+            return False
     except Exception as e:
-        socket.getaddrinfo = orig_getaddrinfo
-        logger.error(f"Failed to send email to {email}. Error: {str(e)}", exc_info=True)
+        logger.error(f"Failed to connect to Brevo API: {str(e)}")
         return False
 
 def verify_paystack_signature(payload: bytes, signature: str) -> bool: 
