@@ -45,7 +45,6 @@ def generate_vg_id(prefix: str = "VG-U") -> str:
     return f"{prefix}-{unique_suffix}"
 
 def generate_verification_code() -> str:
-   
     return f"{random.randint(100000, 999999)}"
 
 def send_welcome_verification_email(email: str, username: str, code: str):
@@ -69,25 +68,33 @@ def send_welcome_verification_email(email: str, username: str, code: str):
     msg['To'] = email
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
+    orig_getaddrinfo = socket.getaddrinfo
 
     try:
-        orig_getaddrinfo = socket.getaddrinfo
         def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
             return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        socket.getaddrinfo = ipv4_getaddrinfo
-        if int(settings.SMTP_PORT) == 587:
-            with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
-                server.starttls()
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP_SSL(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-        socket.getaddrinfo = orig_getaddrinfo
         
+        socket.getaddrinfo = ipv4_getaddrinfo
+        
+        smtp_port = int(settings.SMTP_PORT)
+
+       
+        if smtp_port == 587:
+            with smtplib.SMTP(settings.SMTP_SERVER, smtp_port, timeout=15) as server:
+                server.starttls()  
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+        
+        
+        else:
+            with smtplib.SMTP_SSL(settings.SMTP_SERVER, smtp_port, timeout=15) as server:
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+        
+        socket.getaddrinfo = orig_getaddrinfo
         logger.info(f"Consolidated Welcome/Verification email sent to {username} ({email})")
         return True
+
     except Exception as e:
         socket.getaddrinfo = orig_getaddrinfo
         logger.error(f"Failed to send email to {email}. Error: {str(e)}", exc_info=True)
