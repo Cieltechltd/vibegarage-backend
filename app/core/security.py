@@ -1,13 +1,10 @@
 import os
 import uuid
-import pyotp
 import random 
 import logging
 import hmac
 import hashlib
-import requests
-import resend  
-from pathlib import Path
+import resend 
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from jose import jwt
@@ -19,13 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vibe-garage-security")
 
-
-resend.api_key = os.getenv("RESEND_API_KEY")
-
-pwd_context = CryptContext(
-    schemes=["argon2"],
-    deprecated="auto"
-)
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -35,10 +26,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(user_id: str):
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {
-        "sub": user_id,
-        "exp": expire
-    }
+    payload = {"sub": user_id, "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 def generate_vg_id(prefix: str = "VG-U") -> str:
@@ -49,35 +37,36 @@ def generate_verification_code() -> str:
     return f"{random.randint(100000, 999999)}"
 
 def send_welcome_verification_email(email: str, username: str, code: str):
-   
+    
+    resend.api_key = os.getenv("RESEND_API_KEY")
+    
+    if not resend.api_key:
+        logger.error("RESEND_API_KEY is not set in environment variables.")
+        return False
+
     html_content = f"""
-    <html>
-        <body style="font-family: sans-serif; background-color: #121212; color: #ffffff; padding: 40px; border-radius: 12px;">
-            <h2 style="color: #00ffcc; text-align: center;">VIBE GARAGE</h2>
-            <p>Welcome to VibeGarage, {username}!</p>
-            <p>To complete your registration and start streaming, use the activation code below:</p>
-            <div style="background: #1e1e1e; padding: 20px; border-radius: 8px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #00ffcc; border: 1px solid #333; margin: 20px 0;">
-                {code}
-            </div>
-            <p style="text-align: center; color: #888;">Stay tuned.<br>The VibeGarage Team</p>
-        </body>
-    </html>
+    <div style="font-family: sans-serif; background-color: #000; color: #fff; padding: 40px; border-radius: 12px; border: 1px solid #333;">
+        <h2 style="color: #00ffcc; text-align: center;">VIBE GARAGE</h2>
+        <p>Welcome to VibeGarage, {username}!</p>
+        <p>Use the code below to verify your account:</p>
+        <div style="background: #111; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; color: #00ffcc; border: 1px solid #00ffcc; margin: 20px 0;">
+            {code}
+        </div>
+        <p style="text-align: center; color: #666;">The Vibe Garage Team</p>
+    </div>
     """
 
     try:
-        params = {
-            "from": "VibeGarage <hello@vibegarage.app>",
+        resend.Emails.send({{
+            "from": "Vibe Garage <hello@vibegarage.app>",
             "to": [email],
-            "subject": "Welcome to VibeGarage | Verify Your Account",
+            "subject": "Verify Your Account | Vibe Garage",
             "html": html_content
-        }
-        
-        resend.Emails.send(params)
-        logger.info(f"Resend API: Verification email sent successfully to {email}")
+        }})
+        logger.info(f"Resend API: Verification email sent to {email}")
         return True
-
     except Exception as e:
-        logger.error(f"Resend API Error for {email}: {str(e)}", exc_info=True)
+        logger.error(f"Resend API Error: {str(e)}")
         return False
 
 def verify_paystack_signature(payload: bytes, signature: str) -> bool: 
