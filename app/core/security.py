@@ -4,7 +4,7 @@ import random
 import logging
 import hmac
 import hashlib
-import resend 
+import requests  
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from jose import jwt
@@ -38,11 +38,20 @@ def generate_verification_code() -> str:
 
 def send_welcome_verification_email(email: str, username: str, code: str):
     
-    resend.api_key = os.getenv("RESEND_API_KEY")
+    api_key = os.getenv("RESEND_API_KEY")
+    url = "https://api.resend.com/emails"
     
-    if not resend.api_key:
+    if not api_key:
         logger.error("RESEND_API_KEY is not set in environment variables.")
         return False
+
+    
+    api_key = api_key.strip().replace('"', '').replace("'", "")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
 
     html_content = f"""
     <div style="font-family: sans-serif; background-color: #000; color: #fff; padding: 40px; border-radius: 12px; border: 1px solid #333;">
@@ -56,17 +65,25 @@ def send_welcome_verification_email(email: str, username: str, code: str):
     </div>
     """
 
+    payload = {
+        "from": "Vibe Garage <hello@vibegarage.app>",
+        "to": [email],
+        "subject": "Verify Your Account | Vibe Garage",
+        "html": html_content
+    }
+
     try:
-        resend.Emails.send({{
-            "from": "Vibe Garage <hello@vibegarage.app>",
-            "to": [email],
-            "subject": "Verify Your Account | Vibe Garage",
-            "html": html_content
-        }})
-        logger.info(f"Resend API: Verification email sent to {email}")
-        return True
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        
+        if response.status_code in [200, 201]:
+            logger.info(f"Direct API: Verification email sent to {email}")
+            return True
+        else:
+            logger.error(f"Resend API Error: {response.status_code} - {response.text}")
+            return False
+            
     except Exception as e:
-        logger.error(f"Resend API Error: {str(e)}")
+        logger.error(f"Failed to connect to Resend API: {str(e)}")
         return False
 
 def verify_paystack_signature(payload: bytes, signature: str) -> bool: 
