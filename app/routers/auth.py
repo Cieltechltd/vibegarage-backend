@@ -4,7 +4,7 @@ import pyotp
 import qrcode
 from io import BytesIO
 from fastapi.responses import StreamingResponse
-from fastapi import APIRouter, Depends, HTTPException, status, Header, BackgroundTasks 
+from fastapi import APIRouter, Depends, HTTPException, logger, status, Header, BackgroundTasks 
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.models.user import User
@@ -166,9 +166,12 @@ def verify_email(email: str, code: str, db: Session = Depends(get_db)):
 
 @router.get("/2fa/setup")
 def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    
     if not current_user.two_factor_secret:
         current_user.two_factor_secret = pyotp.random_base32()
+        db.add(current_user) 
         db.commit()
+        db.refresh(current_user) 
 
     totp = pyotp.TOTP(current_user.two_factor_secret)
     provisioning_uri = totp.provisioning_uri(
@@ -176,22 +179,32 @@ def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depe
         issuer_name="Vibe Garage"
     )
 
+    
     img = qrcode.make(provisioning_uri)
     buf = BytesIO()
     img.save(buf)
     buf.seek(0)
     
-    return StreamingResponse(buf, media_type="image/png")
+    return StreamingResponse(
+        buf, 
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 @router.post("/2fa/enable")
 def enable_2fa(code: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    
+    db.refresh(current_user)
+    
     if not current_user.two_factor_secret:
+        logger.error(f"2FA Enable failed: No secret for user {current_user.id}")
         raise HTTPException(
             status_code=400, 
             detail="2FA setup has not been initiated. Please visit /auth/2fa/setup first."
         )
     
     totp = pyotp.TOTP(current_user.two_factor_secret)
+    
     if not totp.verify(code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
     
