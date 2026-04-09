@@ -122,9 +122,10 @@ def verify_email(email: str, code: str, db: Session = Depends(get_db)):
 
 @router.get("/2fa/setup")
 def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    current_user = db.merge(current_user)
+    
     if not current_user.two_factor_secret:
         current_user.two_factor_secret = pyotp.random_base32()
-        db.add(current_user)
         db.commit()
         db.refresh(current_user) 
 
