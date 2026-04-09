@@ -14,7 +14,7 @@ def check_and_update_eligibility(artist_id: str, db: Session) -> bool:
     if not artist or artist.monetization_eligible:
         return True if artist and artist.monetization_eligible else False
 
-    # Total streams across all tracks owned by the artist
+    
     total_streams = (
         db.query(func.count(Play.id))
         .join(Track, Play.track_id == Track.id)
@@ -22,7 +22,7 @@ def check_and_update_eligibility(artist_id: str, db: Session) -> bool:
         .scalar() or 0
     )
 
-    # Total followers for the artist
+    
     total_followers = (
         db.query(func.count(Follow.id))
         .filter(Follow.artist_id == artist_id)
