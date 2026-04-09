@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, logger
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from typing import List
@@ -42,9 +42,13 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
     ]
 
 @router.get("/new-releases")
-def get_new_releases(db: Session = Depends(get_db), limit: int = 10):
-   
-    return db.query(Track).order_by(desc(Track.created_at)).limit(limit).all()
+def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
+    
+    try:
+        return db.query(Track).order_by(desc(Track.id)).limit(limit).all()
+    except Exception as e:
+        logger.error(f"Discovery Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Could not fetch new releases")
 
 
 
