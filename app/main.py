@@ -2,6 +2,7 @@ import shim
 import os
 from fastapi import FastAPI
 from fastapi.security import HTTPBearer
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.db.init_db import init_db
 from app.routers import (
@@ -18,6 +19,15 @@ from app.db.session import engine
 
 load_dotenv()
 auth_scheme = HTTPBearer()
+
+origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",    
+    "https://vibegarage.app",   
+    "https://www.vibegarage.app",
+]
+
+
 
 def ensure_upload_dirs():
     directories = [
@@ -49,7 +59,13 @@ app = FastAPI(
     lifespan=lifespan 
 )
 
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,            
+    allow_credentials=True,
+    allow_methods=["*"],              
+    allow_headers=["*"],              
+)
 app.mount("/static", StaticFiles(directory="app/uploads"), name="static")
 
 # Registered Routers
