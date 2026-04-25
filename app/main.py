@@ -25,6 +25,7 @@ origins = [
     "http://localhost:5174",    
     "https://vibegarage.app",   
     "https://www.vibegarage.app",
+    https://vibegarage.netlify.app/
 ]
 
 
