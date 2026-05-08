@@ -107,7 +107,18 @@ def upload_track(
     db.add(track)
     db.commit()
     db.refresh(track)
-    return track
+
+    
+    return {
+        "id": str(track.id), 
+        "title": track.title,
+        "audio_path": track.audio_path,
+        "cover_path": track.cover_path,
+        "price": track.price,
+        "is_for_sale": track.is_for_sale,
+        "plays": getattr(track, 'plays', 0),
+        "likes": getattr(track, 'likes', 0)
+    }
 
 
 
