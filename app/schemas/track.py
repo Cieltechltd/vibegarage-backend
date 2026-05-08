@@ -32,7 +32,7 @@ class PublicTrackOut(BaseModel):
 # use class TrackPublic, imm trying to fix something
 
 class TrackPublic(BaseModel):
-    id: int
+    id: str
     title: str
     play_count: int
     like_count: int
