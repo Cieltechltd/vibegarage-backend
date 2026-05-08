@@ -1,5 +1,6 @@
 import uuid
 import os
+from alembic.environment import List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, Body, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
@@ -131,7 +132,7 @@ def download_track(
     if getattr(track, 'is_for_sale', False) and not is_owner:
         raise HTTPException(status_code=403, detail="Purchase required to download")
 
-    # LOGGING THE DOWNLOAD
+   
     new_download = Download(
         id=str(uuid.uuid4()),
         user_id=current_user.id,
@@ -146,11 +147,28 @@ def download_track(
         filename=f"{track.title}.mp3" 
     )
 
-# --- UTILITY & SOCIAL ---
 
-@router.get("/my", response_model=list[TrackOut])
-def get_my_tracks(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    return db.query(Track).filter(Track.artist_id == current_user.id).all()
+@router.get("/my", response_model=List[TrackOut])
+def get_my_tracks(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    tracks = db.query(Track).filter(Track.artist_id == current_user.id).all()
+    
+    
+    return [
+        {
+            "id": str(t.id),
+            "title": t.title,
+            "audio_path": t.audio_path,
+            "cover_path": t.cover_path,
+            "price": t.price,
+            "is_for_sale": t.is_for_sale,
+            "plays": getattr(t, 'plays', 0),
+            "likes": getattr(t, 'likes', 0)
+        } 
+        for t in tracks
+    ]
 
 @router.post("/{track_id}/like")
 def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
