@@ -1,4 +1,4 @@
-import shim
+import app.shim as shim
 import os
 from fastapi import FastAPI
 from fastapi.security import HTTPBearer

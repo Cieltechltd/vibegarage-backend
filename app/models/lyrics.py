@@ -12,7 +12,7 @@ from app.db.database import Base
 class Lyric(Base):
     __tablename__ = "lyrics"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"), unique=True)
     # lyric_type = Column(Enum(LyricType), default=LyricType.PLAIN)
     content = Column(Text, nullable=False) 

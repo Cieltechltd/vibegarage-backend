@@ -24,25 +24,34 @@ def create_album(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if not current_user.is_artist:
-        raise HTTPException(
-            status_code=403,
-            detail="Only artists can create albums"
-        )
+    
+    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
+        raise HTTPException(status_code=403, detail="Only artists can create albums")
 
     album = Album(
+        id=str(uuid.uuid4()), 
         title=album_data.title,
         description=album_data.description,
         cover_image=album_data.cover_image,
         artist_id=current_user.id,
-        release_date=album_data.release_date
+        release_date=album_data.release_date,
+        is_published=False 
     )
 
     db.add(album)
     db.commit()
     db.refresh(album)
 
-    return album
+    
+    return {
+        "id": str(album.id),
+        "title": album.title,
+        "description": album.description,
+        "cover_image": album.cover_image,
+        "artist_id": str(album.artist_id),
+        "release_date": album.release_date,
+        "is_published": getattr(album, 'is_published', False)
+    }
 
 
 @router.get("/my", response_model=List[AlbumOut])
@@ -50,18 +59,28 @@ def get_my_albums(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if not current_user.is_artist:
+    
+    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
         raise HTTPException(status_code=403, detail="Not an artist")
 
-    albums = db.query(Album).filter(
-        Album.artist_id == current_user.id
-    ).all()
+    albums = db.query(Album).filter(Album.artist_id == current_user.id).all()
 
-    return albums
+    
+    return [
+        {
+            "id": str(a.id),
+            "title": a.title,
+            "description": a.description,
+            "cover_image": a.cover_image,
+            "artist_id": str(a.artist_id),
+            "release_date": a.release_date,
+            "is_published": getattr(a, 'is_published', False)
+        } for a in albums
+    ]
 
 @router.get("/{album_id}", response_model=AlbumOut)
 def get_album(
-    album_id: int,
+    album_id: str, 
     db: Session = Depends(get_db)
 ):
     album = db.query(Album).filter(Album.id == album_id).first()
@@ -69,12 +88,19 @@ def get_album(
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")
 
-    return album
-
+    return {
+        "id": str(album.id),
+        "title": album.title,
+        "description": album.description,
+        "cover_image": album.cover_image,
+        "artist_id": str(album.artist_id),
+        "release_date": album.release_date,
+        "is_published": getattr(album, 'is_published', False)
+    }
 
 @router.delete("/{album_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_album(
-    album_id: int,
+    album_id: str, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -88,56 +114,18 @@ def delete_album(
 
     db.delete(album)
     db.commit()
+    return None
 
-
-@router.post("/bulk-upload")
-async def bulk_album_upload(
-    album_data: AlbumCreate,
-    title: str = Form(...),
-    tracks: List[UploadFile] = File(...),
+@router.post("/publish/{album_id}")
+def publish_album(
+    album_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-): 
-    if not current_user.is_artist:
-        raise HTTPException(status_code=403, detail="Only artists can upload albums")
-
-
-    album = Album(
-        title=title,
-        description=album_data.description,
-        cover_image=album_data.cover_image,
-        artist_id=current_user.id,
-        release_date=album_data.release_date
-    )
-    db.add(album)
+):
+    album = db.query(Album).filter(Album.id == album_id, Album.artist_id == current_user.id).first()
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+    
+    album.is_published = True
     db.commit()
-    db.refresh(album)
-
-    created_tracks = []
-
-
-    for file in tracks:
-        file_ext = file.filename.split(".")[-1]
-        filename = f"{uuid.uuid4()}.{file_ext}"
-        audio_path = os.path.join(UPLOAD_DIR, filename)
-
-        with open(audio_path, "wb") as buffer:
-            buffer.write(await file.read())
-
-        track = Track(
-            title=file.filename.rsplit(".", 1)[0],
-            file_url=audio_path,
-            album_id=album.id,
-            artist_id=current_user.id
-        )
-
-        db.add(track)
-        created_tracks.append(track)
-
-    db.commit()
-
-    return {
-        "message": "Album uploaded successfully",
-        "album_id": album.id,
-        "total_tracks": len(created_tracks)
-    }
+    return {"message": "Album published successfully"}

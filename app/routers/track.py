@@ -26,6 +26,7 @@ router = APIRouter(prefix="/tracks", tags=["Tracks"])
 def upload_track(
     title: str = Form(...),
     audio: UploadFile = File(...),
+    album_id: str = Form(None),
     cover: UploadFile | None = File(None),
     price: float = Form(0.0),
     is_for_sale: bool = Form(False),
@@ -51,6 +52,7 @@ def upload_track(
         id=str(uuid.uuid4()), 
         title=title,
         audio_path=audio_path,
+        album_id=album_id,
         cover_path=cover_path,
         artist_id=current_user.id,
         price=price, 
