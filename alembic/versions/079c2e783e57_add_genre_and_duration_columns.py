@@ -19,25 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema safely by dropping all active target constraints first."""
+    """Upgrade schema safely using explicit PostgreSQL IF EXISTS modifiers."""
     
-    # 1. Drop ALL foreign key constraints that connect these tables together
-    constraints_to_drop = [
-        ('tracks_album_id_fkey', 'tracks'),
-        ('likes_track_id_fkey', 'likes'),
-        ('plays_track_id_fkey', 'plays')
-    ]
-    for constraint, table in constraints_to_drop:
-        try:
-            op.drop_constraint(constraint, table, type_='foreignkey')
-        except Exception:
-            pass  # Avoid halting if a constraint name differs or is not established
+    # 1. Drop constraints cleanly using direct SQL to avoid crashing the transaction block
+    op.execute("ALTER TABLE tracks DROP CONSTRAINT IF EXISTS tracks_album_id_fkey")
+    op.execute("ALTER TABLE likes DROP CONSTRAINT IF EXISTS likes_track_id_fkey")
+    op.execute("ALTER TABLE plays DROP CONSTRAINT IF EXISTS plays_track_id_fkey")
 
-    # 2. Drop the auto-increment integer default from the plays table
-    try:
-        op.execute("ALTER TABLE plays ALTER COLUMN id DROP DEFAULT")
-    except Exception:
-        pass
+    # 2. Drop the auto-increment integer default cleanly from the plays table
+    op.execute("ALTER TABLE plays ALTER COLUMN id DROP DEFAULT")
 
     # 3. Alter column data types with explicit postgresql_using type casting
     op.alter_column('albums', 'id',
@@ -64,7 +54,6 @@ def upgrade() -> None:
                postgresql_using="track_id::uuid",
                existing_nullable=True)
     
-    # Explicit conversion from Integer sequence entries to UUID strings
     op.alter_column('plays', 'id',
                existing_type=sa.INTEGER(),
                type_=sa.UUID(),
@@ -89,18 +78,11 @@ def upgrade() -> None:
                postgresql_using="album_id::uuid",
                existing_nullable=True)
 
-    # 4. Clean up older sequential indexes safely
-    try:
-        op.drop_index(op.f('ix_albums_id'), table_name='albums')
-    except Exception:
-        pass
-        
-    try:
-        op.drop_index(op.f('ix_plays_id'), table_name='plays')
-    except Exception:
-        pass
+    # 4. Clean up older sequential indexes cleanly via SQL
+    op.execute("DROP INDEX IF EXISTS ix_albums_id")
+    op.execute("DROP INDEX IF EXISTS ix_plays_id")
 
-    # 5. Append yhur feature extensions 
+    # 5. Append feature extensions 
     op.add_column('tracks', sa.Column('genre', sa.String(), nullable=True))
     op.add_column('tracks', sa.Column('duration', sa.Float(), nullable=True))
 
@@ -112,16 +94,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema safely reversing type switches with string casting."""
-    constraints_to_drop = [
-        ('tracks_album_id_fkey', 'tracks'),
-        ('likes_track_id_fkey', 'likes'),
-        ('plays_track_id_fkey', 'plays')
-    ]
-    for constraint, table in constraints_to_drop:
-        try:
-            op.drop_constraint(constraint, table, type_='foreignkey')
-        except Exception:
-            pass
+    op.execute("ALTER TABLE tracks DROP CONSTRAINT IF EXISTS tracks_album_id_fkey")
+    op.execute("ALTER TABLE likes DROP CONSTRAINT IF EXISTS likes_track_id_fkey")
+    op.execute("ALTER TABLE plays DROP CONSTRAINT IF EXISTS plays_track_id_fkey")
 
     op.alter_column('tracks', 'album_id',
                existing_type=sa.UUID(),
@@ -150,12 +125,8 @@ def downgrade() -> None:
                postgresql_using="id::text::integer",
                existing_nullable=False)
     
-    # Re-apply integer auto-increment serialization behavior if downgraded
-    try:
-        op.execute("CREATE SEQUENCE IF NOT EXISTS plays_id_seq")
-        op.execute("ALTER TABLE plays ALTER COLUMN id SET DEFAULT nextval('plays_id_seq')")
-    except Exception:
-        pass
+    op.execute("CREATE SEQUENCE IF NOT EXISTS plays_id_seq")
+    op.execute("ALTER TABLE plays ALTER COLUMN id SET DEFAULT nextval('plays_id_seq')")
 
     op.alter_column('likes', 'track_id',
                existing_type=sa.UUID(),
