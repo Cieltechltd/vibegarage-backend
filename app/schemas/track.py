@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional
 from app.schemas.artist import ArtistPublic
 
+# Base URL for your public Supabase storage buckets
 SUPABASE_STORAGE_URL = "https://tatswhuxpbxzlprjfvln.supabase.co/storage/v1/object/public"
 
 
@@ -26,8 +27,9 @@ class TrackOut(BaseModel):
         if value.startswith("http://") or value.startswith("https://"):
             return value
         
-        file_name = value.split("/")[-1]
-        return f"{SUPABASE_STORAGE_URL}/covers/{file_name}"
+        # Strips out duplicate leading slashes if they exist
+        clean_path = value.lstrip("/")
+        return f"{SUPABASE_STORAGE_URL}/vibegarage/{clean_path}"
 
     @field_validator("audio_path", mode="before")
     @classmethod
@@ -37,9 +39,8 @@ class TrackOut(BaseModel):
         if value.startswith("http://") or value.startswith("https://"):
             return value
         
-       
-        file_name = value.split("/")[-1]
-        return f"{SUPABASE_STORAGE_URL}/audio/{file_name}"
+        clean_path = value.lstrip("/")
+        return f"{SUPABASE_STORAGE_URL}/vibegarage/{clean_path}"
 
 
 class PublicTrackOut(BaseModel):
@@ -70,8 +71,8 @@ class PublicTrackOut(BaseModel):
         if value.startswith("http://") or value.startswith("https://"):
             return value
         
-        file_name = value.split("/")[-1]
-        return f"{SUPABASE_STORAGE_URL}/covers/{file_name}"
+        clean_path = value.lstrip("/")
+        return f"{SUPABASE_STORAGE_URL}/vibegarage/{clean_path}"
 
     @field_validator("audio_path", mode="before")
     @classmethod
@@ -81,8 +82,8 @@ class PublicTrackOut(BaseModel):
         if value.startswith("http://") or value.startswith("https://"):
             return value
         
-        file_name = value.split("/")[-1]
-        return f"{SUPABASE_STORAGE_URL}/audio/{file_name}"
+        clean_path = value.lstrip("/")
+        return f"{SUPABASE_STORAGE_URL}/vibegarage/{clean_path}"
 
 
 class TrackPublic(BaseModel):
