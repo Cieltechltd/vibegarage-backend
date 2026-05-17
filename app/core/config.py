@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     
     
+    SUPABASE_URL: str
+    SUPABASE_KEY: str
+    
     MASTER_ADMIN_EMAIL: str
     MASTER_ADMIN_PASSWORD: str
     
