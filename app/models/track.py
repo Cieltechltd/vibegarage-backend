@@ -14,7 +14,7 @@ class Track(Base):
     plays = Column(Integer, default=0)
     likes = Column(Integer, default=0)
     genre = Column(String, nullable=True, default="Unknown")
-    duration = Column(Float, default=0.0)
+    duration = Column(Float, nullable=True, server_default="0.0")
     artist_id = Column(String, ForeignKey("users.id"))
     artist = relationship("User", back_populates="tracks")
     likes_rel = relationship("Like", backref="track")

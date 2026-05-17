@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional
 from app.schemas.artist import ArtistPublic
+
+SUPABASE_STORAGE_URL = "https://tatswhuxpbxzlprjfvln.supabase.co/storage/v1/object/public"
 
 
 class TrackOut(BaseModel):
@@ -15,6 +17,29 @@ class TrackOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_validator("cover_path", mode="before")
+    @classmethod
+    def convert_cover_to_full_url(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+        if value.startswith("http://") or value.startswith("https://"):
+            return value
+        
+        file_name = value.split("/")[-1]
+        return f"{SUPABASE_STORAGE_URL}/covers/{file_name}"
+
+    @field_validator("audio_path", mode="before")
+    @classmethod
+    def convert_audio_to_full_url(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+        if value.startswith("http://") or value.startswith("https://"):
+            return value
+        
+       
+        file_name = value.split("/")[-1]
+        return f"{SUPABASE_STORAGE_URL}/audio/{file_name}"
 
 
 class PublicTrackOut(BaseModel):
@@ -35,8 +60,29 @@ class PublicTrackOut(BaseModel):
     is_for_sale: bool = False
     price: float = 0.0
 
-    
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("cover_path", mode="before")
+    @classmethod
+    def convert_public_cover_to_full_url(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+        if value.startswith("http://") or value.startswith("https://"):
+            return value
+        
+        file_name = value.split("/")[-1]
+        return f"{SUPABASE_STORAGE_URL}/covers/{file_name}"
+
+    @field_validator("audio_path", mode="before")
+    @classmethod
+    def convert_public_audio_to_full_url(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+        if value.startswith("http://") or value.startswith("https://"):
+            return value
+        
+        file_name = value.split("/")[-1]
+        return f"{SUPABASE_STORAGE_URL}/audio/{file_name}"
 
 
 class TrackPublic(BaseModel):
