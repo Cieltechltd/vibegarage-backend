@@ -20,7 +20,10 @@ class PlaylistTrack(Base):
     __tablename__ = "playlist_tracks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    playlist_id = Column(String, ForeignKey("playlists.id"))
+    
+   
+    playlist_id = Column(UUID(as_uuid=True), ForeignKey("playlists.id"))
+    
     track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"))
     added_at = Column(DateTime, default=datetime.utcnow)
 
