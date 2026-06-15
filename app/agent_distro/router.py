@@ -6,13 +6,10 @@ import hmac
 import hashlib
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-
-
 from app.agent_distro.schemas import TrackDistroSubmission
 from app.agent_distro.models import DistributionRelease, RoyaltySplit, ReleaseStatus
 
 router = APIRouter()
-
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "sk_test_placeholder_key")
 
@@ -23,15 +20,15 @@ def initialize_distribution_and_licensing(
 ):
     
     try:
-        
         db_release = DistributionRelease(
             track_id=submission.track_id,
             user_id="00000000-0000-0000-0000-000000000000", 
-            status="PENDING_PAYMENT",
+            status=ReleaseStatus.PENDING_PAYMENT, 
             allow_sync_licensing=submission.allow_sync_licensing
         )
         db.add(db_release)
         db.flush()  
+        
         for split_item in submission.splits:
             db_split = RoyaltySplit(
                 release_id=db_release.id,
@@ -40,7 +37,7 @@ def initialize_distribution_and_licensing(
             )
             db.add(db_split)
 
-        
+       
         paystack_url = "https://api.paystack.co/transaction/initialize"
         headers = {
             "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
@@ -58,9 +55,8 @@ def initialize_distribution_and_licensing(
 
         response = requests.post(paystack_url, json=payload, headers=headers)
         
-    
+        
         if response.status_code != 200:
-            
             print(f"❌ PAYSTACK INITIALIZATION ERROR STATUS: {response.status_code}")
             print(f"❌ PAYSTACK INITIALIZATION RESPONSE BODY: {response.text}")
             db.rollback()
@@ -83,7 +79,6 @@ def initialize_distribution_and_licensing(
         }
 
     except HTTPException as he:
-        
         raise he
     except Exception as e:
         db.rollback()
@@ -99,9 +94,7 @@ async def paystack_secure_webhook(
     db: Session = Depends(get_db)
 ):
     
-    
     payload = await request.body()
-    
     
     computed_signature = hmac.new(
         PAYSTACK_SECRET_KEY.encode('utf-8'), 
@@ -109,29 +102,23 @@ async def paystack_secure_webhook(
         hashlib.sha512
     ).hexdigest()
     
-    
     # if computed_signature != x_paystack_signature:
     #     raise HTTPException(
     #         status_code=status.HTTP_401_UNAUTHORIZED, 
     #         detail="Security breach: Signature mismatch."
     #     )
         
-    
     event_data = await request.json()
-    
     
     if event_data.get("event") == "charge.success":
         reference = event_data["data"]["reference"]
-        
-       
         release = db.query(DistributionRelease).filter(
             DistributionRelease.paystack_reference == reference
         ).first()
         
-        
-        if release and release.status == "PENDING_PAYMENT":
-            
-            release.status = "PAYMENT_RECEIVED"
+    
+        if release and release.status == ReleaseStatus.PENDING_PAYMENT:  
+            release.status = ReleaseStatus.PAYMENT_RECEIVED             
             db.commit()
             
             run_autonomous_agent_pipeline(release.id, db)
