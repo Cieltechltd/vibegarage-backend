@@ -23,14 +23,14 @@ class DistributionRelease(Base):
     paystack_reference = Column(String(255), unique=True, nullable=True)
     status = Column(SQLEnum(ReleaseStatus), default=ReleaseStatus.PENDING_PAYMENT)
     
-    # Global industry standard tracking identifiers 
+    
     upc = Column(String(13), nullable=True)
     isrc = Column(String(12), nullable=True)
     
-    # Autonomous Legal Licensing properties audited by the AI
+   
     allow_sync_licensing = Column(Boolean, default=True)
-    license_contract_url = Column(String(1000), nullable=True) # Link to the dynamic PDF contract
-    agent_trace_id = Column(String(255), nullable=True)        # Links straight to Google Cloud logging
+    license_contract_url = Column(String(1000), nullable=True) 
+    agent_trace_id = Column(String(255), nullable=True)        
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
