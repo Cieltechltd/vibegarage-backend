@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings 
 from app.db.database import Base 
-from app.db.session import engine 
+from app.db.session import engine
+from app.agent_distro.router import router as distro_router
 
 load_dotenv()
 auth_scheme = HTTPBearer()
@@ -88,6 +89,7 @@ app.include_router(lyrics.router)
 app.include_router(clips.router)
 app.include_router(billing.router)
 app.include_router(payouts.router)
+app.include_router(distro_router, prefix="/distro", tags=["Agent Distribution"])
 
 @app.get("/")
 def root():
