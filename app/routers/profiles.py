@@ -11,7 +11,7 @@ from app.models.play import Play
 
 router = APIRouter(prefix="/public/artists", tags=["Discovery & Profiles"])
 
-@router.get("/{username}", response_class=HTMLResponse)
+@router.get("/{artist_id}", response_class=HTMLResponse)
 def get_artist_profile_or_preview(
     username: str, 
     request: Request, 
@@ -53,9 +53,9 @@ def get_artist_profile_or_preview(
     """
     return HTMLResponse(content=html_content)
 
-@router.get("/{username}/data")
-def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
-    artist = db.query(User).filter(User.username == username).first()
+@router.get("/{artist_id}/data")
+def get_artist_raw_data(artist_id: int, db: Session = Depends(get_db)):
+    artist = db.query(User).filter(User.id == artist_id).first()
     
     if not artist or artist.role != "ARTIST":
         raise HTTPException(status_code=404, detail="Artist profile not found")
@@ -86,17 +86,17 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
         ]
     }
 
-@router.get("/{username}/qrcode")
+@router.get("/{artist_id}/qrcode")
 def get_artist_qr_code(
-    username: str, 
-    request: Request, 
+    artist_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    artist = db.query(User).filter(User.username == username).first()
+    artist = db.query(User).filter(User.id == artist_id).first()
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
     base_url = str(request.base_url).rstrip("/")
-    profile_url = f"{base_url}/public/artists/{username}"
+    profile_url = f"{base_url}/public/artists/{artist.username}"
 
     qr = segno.make(profile_url, error='h')
     
