@@ -41,11 +41,38 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
         for track, recent_plays in trending_query
     ]
 
+
 @router.get("/new-releases")
 def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
-    
     try:
-        return db.query(Track).order_by(desc(Track.id)).limit(limit).all()
+        query_results = (
+            db.query(Track, User.username)
+            .join(User, Track.artist_id == User.id)
+            .order_by(desc(Track.id))
+            .limit(limit)
+            .all()
+        )
+        
+        response_data = []
+        for track, username in query_results:
+            response_data.append({
+                "id": track.id,
+                "title": track.title,
+                "audio_path": track.audio_path,
+                "cover_path": track.cover_path,
+                "plays": track.plays,
+                "likes": track.likes,
+                "genre": track.genre,
+                "duration": track.duration,
+                "price": track.price,
+                "is_for_sale": track.is_for_sale,
+                "album_id": track.album_id,
+                "artist_id": track.artist_id,
+                "username": username
+            })
+
+        return response_data
+
     except Exception as e:
         logger.error(f"Discovery Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Could not fetch new releases")

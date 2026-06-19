@@ -11,16 +11,26 @@ from app.models.play import Play
 
 router = APIRouter(prefix="/public/artists", tags=["Discovery & Profiles"])
 
-@router.get("/{artist_id}", response_class=HTMLResponse)
+def find_artist_by_username(username: str, db: Session) -> User:
+    clean_username = username.strip()
+    artist = db.query(User).filter(User.username == clean_username).first()
+
+    if not artist or artist.role != "ARTIST":
+        raise HTTPException(
+            status_code=404, 
+            detail="Artist profile not found"
+        )
+        
+    return artist
+
+@router.get("/profile/{username}", response_class=HTMLResponse)
 def get_artist_profile_or_preview(
     username: str, 
     request: Request, 
     db: Session = Depends(get_db)
 ):
-    artist = db.query(User).filter(User.username == username).first()
+    artist = find_artist_by_username(username, db)
     
-    if not artist or artist.role != "ARTIST":
-        raise HTTPException(status_code=404, detail="Artist profile not found")
     total_streams = db.query(func.count(Play.id)).join(Track).filter(
         Track.artist_id == artist.id
     ).scalar() or 0
@@ -34,6 +44,7 @@ def get_artist_profile_or_preview(
     <!DOCTYPE html>
     <html>
     <head>
+        <meta charset="UTF-8">
         <meta property="og:title" content="{name} | Vibe Garage Artist" />
         <meta property="og:description" content="{bio} | {total_streams} Total Streams" />
         <meta property="og:image" content="{avatar_url}" />
@@ -45,20 +56,19 @@ def get_artist_profile_or_preview(
     </head>
     <body>
         <script>
-            window.location.href = "https://vibegarage.app/artists/{username}";
+            window.location.href = "https://vibegarage.app/artists/{artist.username}";
         </script>
-        <p>Redirecting to {name}'s profile...</p>
+        <p style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+            Redirecting to {name}'s profile...
+        </p>
     </body>
     </html>
     """
     return HTMLResponse(content=html_content)
 
-@router.get("/{artist_id}/data")
-def get_artist_raw_data(artist_id: int, db: Session = Depends(get_db)):
-    artist = db.query(User).filter(User.id == artist_id).first()
-    
-    if not artist or artist.role != "ARTIST":
-        raise HTTPException(status_code=404, detail="Artist profile not found")
+@router.get("/profile/{username}/data")
+def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
+    artist = find_artist_by_username(username, db)
 
     total_streams = db.query(func.count(Play.id)).join(Track).filter(
         Track.artist_id == artist.id
@@ -67,6 +77,8 @@ def get_artist_raw_data(artist_id: int, db: Session = Depends(get_db)):
     tracks = db.query(Track).filter(Track.artist_id == artist.id).all()
 
     return {
+        "id": artist.id,                         
+        "username": artist.username,             
         "stage_name": artist.stage_name or artist.username,
         "avatar": artist.avatar_url or "https://vibegarage.app/static/default-avatar.png",
         "is_verified": artist.is_verified,  
@@ -86,17 +98,17 @@ def get_artist_raw_data(artist_id: int, db: Session = Depends(get_db)):
         ]
     }
 
-@router.get("/{artist_id}/qrcode")
+
+@router.get("/profile/{username}/qrcode")
 def get_artist_qr_code(
-    artist_id: int,
-    request: Request,
+    username: str, 
+    request: Request, 
     db: Session = Depends(get_db)
 ):
-    artist = db.query(User).filter(User.id == artist_id).first()
-    if not artist:
-        raise HTTPException(status_code=404, detail="Artist not found")
+    artist = find_artist_by_username(username, db)
+    
     base_url = str(request.base_url).rstrip("/")
-    profile_url = f"{base_url}/public/artists/{artist.username}"
+    profile_url = f"{base_url}/public/artists/profile/{artist.username}"
 
     qr = segno.make(profile_url, error='h')
     

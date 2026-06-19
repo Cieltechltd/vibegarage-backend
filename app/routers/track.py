@@ -32,7 +32,6 @@ BUCKET_NAME = "vibegarage"
 
 
 def format_public_track(track: Track, artist_user: User, db: Session, current_user: Optional[User] = None) -> dict:
-    
     is_liked = False
     if current_user:
         like_exists = db.query(Like).filter(Like.track_id == track.id, Like.user_id == current_user.id).first()
@@ -89,7 +88,6 @@ async def upload_track(
     try:
         unique_id = str(uuid.uuid4())
         
-
         audio_ext = os.path.splitext(audio.filename)[1] or ".mp3"
         audio_filename = f"tracks/{unique_id}{audio_ext}"
         audio_data = await audio.read()
@@ -114,7 +112,6 @@ async def upload_track(
             )
             cover_path_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
 
-        
         track = Track(
             id=unique_id, 
             title=title,
@@ -187,8 +184,10 @@ def stream_track(
         is_monetized_stream=is_monetized
     )
     db.add(new_play)
-    track.plays += 1
+    db.query(Track).filter(Track.id == track_id).update({Track.plays: Track.plays + 1})
+    
     db.commit()
+    db.refresh(track)
 
     return FileResponse(path=final_path, media_type="audio/mpeg")
 
@@ -244,21 +243,21 @@ def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depe
     existing = db.query(Like).filter(Like.track_id == track_id, Like.user_id == current_user.id).first()
     if existing:
         db.delete(existing)
-        track.likes -= 1
+        db.query(Track).filter(Track.id == track_id).update({Track.likes: Track.likes - 1})
         action = "unliked"
     else:
         like = Like(user_id=current_user.id, track_id=track_id)
         db.add(like)
-        track.likes += 1
+        db.query(Track).filter(Track.id == track_id).update({Track.likes: Track.likes + 1})
         action = "liked"
 
     db.commit()
+    db.refresh(track)  
     return {"status": action, "likes": track.likes}
 
 
 @router.get("/public/latest", response_model=List[PublicTrackOut])
 def latest_tracks(db: Session = Depends(get_db)):
-    
     results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.id)).limit(20).all()
     return [format_public_track(t, u, db, current_user=None) for t, u in results]
 
