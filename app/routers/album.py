@@ -24,7 +24,6 @@ def create_album(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    
     if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
         raise HTTPException(status_code=403, detail="Only artists can create albums")
 
@@ -42,7 +41,6 @@ def create_album(
     db.commit()
     db.refresh(album)
 
-    
     return {
         "id": str(album.id),
         "title": album.title,
@@ -59,13 +57,11 @@ def get_my_albums(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    
     if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
         raise HTTPException(status_code=403, detail="Not an artist")
 
     albums = db.query(Album).filter(Album.artist_id == current_user.id).all()
 
-    
     return [
         {
             "id": str(a.id),
@@ -77,6 +73,61 @@ def get_my_albums(
             "is_published": getattr(a, 'is_published', False)
         } for a in albums
     ]
+
+
+
+@router.get("/drafts", response_model=List[AlbumOut])
+def get_my_album_drafts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
+        raise HTTPException(status_code=403, detail="Only artists can view album drafts.")
+
+   
+    drafts = db.query(Album).filter(
+        Album.artist_id == current_user.id,
+        (Album.is_published == False) | (Album.is_published == None)
+    ).all()
+
+    return [
+        {
+            "id": str(a.id),
+            "title": a.title,
+            "description": a.description,
+            "cover_image": a.cover_image,
+            "artist_id": str(a.artist_id),
+            "release_date": a.release_date,
+            "is_published": False
+        } for a in drafts
+    ]
+
+
+@router.put("/{album_id}/tracks", status_code=status.HTTP_200_OK)
+def add_tracks_to_album(
+    album_id: str,
+    track_ids: List[str],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    
+    album = db.query(Album).filter(Album.id == album_id, Album.artist_id == current_user.id).first()
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found or unauthorized.")
+
+    
+    updated_count = db.query(Track).filter(
+        Track.id.in_(track_ids),
+        Track.artist_id == current_user.id
+    ).update({Track.album_id: album_id}, synchronize_session=False)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Successfully linked {updated_count} tracks to the album '{album.title}'."
+    }
+
 
 @router.get("/{album_id}", response_model=AlbumOut)
 def get_album(
@@ -98,6 +149,7 @@ def get_album(
         "is_published": getattr(album, 'is_published', False)
     }
 
+
 @router.delete("/{album_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_album(
     album_id: str, 
@@ -115,6 +167,7 @@ def delete_album(
     db.delete(album)
     db.commit()
     return None
+
 
 @router.post("/publish/{album_id}")
 def publish_album(

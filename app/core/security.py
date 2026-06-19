@@ -36,8 +36,8 @@ def generate_vg_id(prefix: str = "VG-U") -> str:
 def generate_verification_code() -> str:
     return f"{random.randint(100000, 999999)}"
 
+
 def send_welcome_verification_email(email: str, username: str, code: str):
-    
     api_key = os.getenv("RESEND_API_KEY")
     url = "https://api.resend.com/emails"
     
@@ -45,7 +45,6 @@ def send_welcome_verification_email(email: str, username: str, code: str):
         logger.error("RESEND_API_KEY is not set in environment variables.")
         return False
 
-    
     api_key = api_key.strip().replace('"', '').replace("'", "")
 
     headers = {
@@ -53,16 +52,99 @@ def send_welcome_verification_email(email: str, username: str, code: str):
         "Content-Type": "application/json"
     }
 
+    
+    LOGO_URL = f"{settings.BASE_URL}/assets/Logo-t5L1aV8V.svg"
+    FACEBOOK_ICON = "https://img.icons8.com/m/fluent/48/facebook-new.png"
+    TWITTER_ICON = "https://img.icons8.com/m/fluent/48/twitter.png"
+    INSTAGRAM_ICON = "https://img.icons8.com/m/fluent/48/instagram-new.png"
+
     html_content = f"""
-    <div style="font-family: sans-serif; background-color: #000; color: #fff; padding: 40px; border-radius: 12px; border: 1px solid #333;">
-        <h2 style="color: #00ffcc; text-align: center;">VIBE GARAGE</h2>
-        <p>Welcome to VibeGarage, {username}!</p>
-        <p>Use the code below to verify your account:</p>
-        <div style="background: #111; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; color: #00ffcc; border: 1px solid #00ffcc; margin: 20px 0;">
-            {code}
-        </div>
-        <p style="text-align: center; color: #666;">The Vibe Garage Team</p>
-    </div>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Verify Your Account</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #080808; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <table width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #080808; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="100%" maxWidth="550px" cellspacing="0" cellpadding="0" border="0" style="max-width: 550px; background-color: #121212; border: 1px solid #222222; border-radius: 16px; padding: 32px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                        
+                        <tr>
+                            <td align="center" style="padding-bottom: 24px; border-bottom: 1px solid #222222;">
+                                <img src="{LOGO_URL}" alt="VibeGarage" width="160" style="display: block; outline: none; border: none; max-width: 100%; height: auto;" onError="this.style.display='none'; document.getElementById('text-logo').style.display='block';">
+                                <h1 id="text-logo" style="display: none; color: #00ffcc; font-size: 26px; font-weight: 800; margin: 0; letter-spacing: 2px;">VIBE GARAGE</h1>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td style="padding-top: 32px;">
+                                <p style="color: #ffffff; font-size: 18px; font-weight: 600; margin: 0 0 12px 0;">Welcome to VibeGarage, {username}!</p>
+                                <p style="color: #aaaaaa; font-size: 14px; line-height: 1.6; margin: 0 0 24px 0;">
+                                    Thank you for signing up for VibeGarage. To activate your account and start streaming, please enter the security verification code below:
+                                </p>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td align="center" style="padding: 10px 0 20px 0;">
+                                <table cellspacing="0" cellpadding="0" border="0" style="background-color: #1a1a1a; border: 1px solid #00ffcc; border-radius: 12px; width: 100%;">
+                                    <tr>
+                                        <td align="center" style="padding: 24px; letter-spacing: 6px; font-size: 36px; font-weight: 800; color: #00ffcc; font-family: monospace, sans-serif;">
+                                            {code}
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td style="padding-bottom: 32px; border-bottom: 1px solid #222222;">
+                                <p style="color: #666666; font-size: 12px; line-height: 1.4; margin: 0; text-align: center;">
+                                    This security code expires shortly. If you did not make this request, you can safely ignore this email.
+                                </p>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td align="center" style="padding-top: 32px;">
+                                <p style="color: #888888; font-size: 13px; font-weight: 500; margin: 0 0 16px 0;">Connect with our community</p>
+                                
+                                <table cellspacing="0" cellpadding="0" border="0">
+                                    <tr>
+                                        <td style="padding: 0 12px;">
+                                            <a href="https://www.facebook.com/VibeGarage" target="_blank" style="text-decoration: none;">
+                                                <img src="{FACEBOOK_ICON}" alt="Facebook" width="28" height="28" style="display: block; border: 0;">
+                                            </a>
+                                        </td>
+                                        <td style="padding: 0 12px;">
+                                            <a href="https://x.com/VibeGarage" target="_blank" style="text-decoration: none;">
+                                                <img src="{TWITTER_ICON}" alt="X (Twitter)" width="28" height="28" style="display: block; border: 0;">
+                                            </a>
+                                        </td>
+                                        <td style="padding: 0 12px;">
+                                            <a href="https://www.instagram.com/vibegarage_entertainment" target="_blank" style="text-decoration: none;">
+                                                <img src="{INSTAGRAM_ICON}" alt="Instagram" width="28" height="28" style="display: block; border: 0;">
+                                            </a>
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <p style="color: #444444; font-size: 11px; margin: 24px 0 0 0; font-weight: 400; letter-spacing: 0.5px; line-height: 1.5;">
+                                    &copy; {datetime.now().year} Vibe Garage. All Rights Reserved.<br>
+                                    A product of <a href="https://cieltech.org" target="_blank" style="color: #666666; text-decoration: underline; font-weight: 500;">Ciel Tech Ltd</a>.
+                                </p>
+                            </td>
+                        </tr>
+
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
     """
 
     payload = {

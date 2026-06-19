@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -13,6 +13,7 @@ class Album(Base):
     description = Column(String, nullable=True)
     release_date = Column(DateTime, default=datetime.utcnow)
     artist_id = Column(String, ForeignKey("users.id"), nullable=False)
+    is_published = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
