@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, DateTime
+from sqlalchemy import Column, String, ForeignKey, DateTime, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -14,16 +14,16 @@ class Playlist(Base):
     user_id = Column(String, ForeignKey("users.id"))
     cover_image = Column(String, nullable=True, default=f"{settings.BASE_URL}/static/default-playlist.png")
     created_at = Column(DateTime, default=datetime.utcnow)
+    is_public = Column(Boolean, nullable=False, default=False)
+    is_favorites = Column(Boolean, nullable=False, default=False)
     tracks = relationship("PlaylistTrack", back_populates="playlist")
+
 
 class PlaylistTrack(Base):
     __tablename__ = "playlist_tracks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    
-   
     playlist_id = Column(UUID(as_uuid=True), ForeignKey("playlists.id"))
-    
     track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"))
     added_at = Column(DateTime, default=datetime.utcnow)
 

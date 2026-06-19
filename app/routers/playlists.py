@@ -14,12 +14,76 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/playlists", tags=["Playlists"])
 
+
+@router.get("/public")
+def get_public_playlists(db: Session = Depends(get_db), limit: int = 10):
+    """
+    Returns globally visible public playlists created by users or curators.
+    """
+    playlists = db.query(Playlist).filter(Playlist.is_public == True).limit(limit).all()
+    return playlists
+
+
+
+@router.get("/my-favorites")
+def get_my_favorites(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    fav_playlist = db.query(Playlist).filter(
+        Playlist.user_id == current_user.id,
+        Playlist.is_favorites == True
+    ).first()
+
+    if not fav_playlist:
+        return {"name": "Favorites", "cover_image": f"{settings.BASE_URL}/static/default-playlist.png", "tracks": []}
+
+
+    results = (
+        db.query(Track)
+        .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+        .filter(PlaylistTrack.playlist_id == fav_playlist.id)
+        .all()
+    )
+
+    playlist_content = []
+    for track in results:
+        is_owned = db.query(Library).filter(
+            Library.user_id == current_user.id, 
+            Library.track_id == track.id
+        ).first() is not None
+
+        playlist_content.append({
+            "id": track.id,
+            "title": track.title,
+            "artist": track.artist.stage_name,
+            "is_verified": track.artist.is_verified_artist,
+            "audio_url": track.file_url if is_owned else track.preview_url,
+            "is_preview": not is_owned
+        })
+
+    return {
+        "id": fav_playlist.id,
+        "name": fav_playlist.name,
+        "cover_image": fav_playlist.cover_image,
+        "tracks": playlist_content
+    }
+
 @router.post("/create")
-def create_playlist(name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_playlist = Playlist(id=str(uuid.uuid4()), name=name, user_id=current_user.id)
+def create_playlist(
+    name: str, 
+    is_public: bool = False, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    new_playlist = Playlist(
+        id=str(uuid.uuid4()), 
+        name=name, 
+        user_id=current_user.id,
+        is_public=is_public,
+        is_favorites=False
+    )
     db.add(new_playlist)
     db.commit()
     return {"message": f"Playlist '{name}' created!", "id": new_playlist.id}
+
 
 @router.post("/{playlist_id}/add/{track_id}")
 def add_to_playlist(
@@ -28,7 +92,6 @@ def add_to_playlist(
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
 ):
-    
     owned = db.query(Library).filter(Library.user_id == current_user.id, Library.track_id == track_id).first()
     if not owned:
         raise HTTPException(status_code=403, detail="You must purchase this track to add it to a playlist.")
@@ -50,9 +113,6 @@ def remove_from_playlist(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Removes a specific track from a listener's playlist.
-    """
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id, Playlist.user_id == current_user.id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found or unauthorized.")
@@ -69,15 +129,16 @@ def remove_from_playlist(
     db.commit()
     return {"message": "Track removed from playlist"}
 
+
 @router.get("/me")
 def get_my_playlists(
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Returns all playlists created by the current listener.
-    """
-    playlists = db.query(Playlist).filter(Playlist.user_id == current_user.id).all()
+    playlists = db.query(Playlist).filter(
+        Playlist.user_id == current_user.id,
+        Playlist.is_favorites == False
+    ).all()
     return playlists
 
 
@@ -87,14 +148,10 @@ def get_playlist_details(
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Retrieves all tracks in a playlist, applying 15-second preview logic where applicable.
-    """
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-   
     results = (
         db.query(Track)
         .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
@@ -123,6 +180,7 @@ def get_playlist_details(
         "cover_image": playlist.cover_image,
         "tracks": playlist_content
     }
+
 
 @router.post("/{playlist_id}/upload-cover")
 async def upload_playlist_cover(
