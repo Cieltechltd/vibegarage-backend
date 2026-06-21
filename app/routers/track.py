@@ -152,6 +152,7 @@ def stream_track(
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
     
+    
     current_user = None
     auth_header = request.headers.get("Authorization")
     
@@ -168,7 +169,7 @@ def stream_track(
         except Exception:
             current_user = None
 
-
+   
     user_owns_track = False
     if current_user:
         if current_user.id == track.artist_id:
@@ -183,40 +184,37 @@ def stream_track(
     else:
         user_owns_track = False
 
-    final_stream_url = track.audio_path
+    
+    audio_path_str = track.audio_path
+    
+    if not audio_path_str.startswith("http"):
+        base_filename = os.path.basename(audio_path_str)
+        audio_path_str = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/tracks/{base_filename}"
+
+    final_stream_url = audio_path_str
     
     if getattr(track, 'is_for_sale', False) and not user_owns_track:
-        base_filename = os.path.basename(track.audio_path)
+        base_filename = os.path.basename(audio_path_str)
         final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
-        
-        if not track.audio_path.startswith("http"):
-            raise HTTPException(status_code=402, detail="Purchase required for full stream")
 
     
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
         is_monetized = True
-    new_play = Play(
-        id=str(uuid.uuid4()),
-        user_id=current_user.id if current_user else None,
-        track_id=track_id,
-        is_monetized_stream=is_monetized
-    )
-    db.add(new_play)
-    
-    
-    db.query(Track).filter(Track.id == track_id).update({Track.plays: Track.plays + 1})
-    
-    db.commit()
-    db.refresh(track)
 
-    if final_stream_url.startswith("http"):
-        return RedirectResponse(url=final_stream_url)
-    
-    if not os.path.exists(final_stream_url):
-        raise HTTPException(status_code=404, detail="Audio file asset missing from storage provider.")
-        
-    return FileResponse(path=final_stream_url, media_type="audio/mpeg")
+    if current_user is not None:
+        new_play = Play(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            track_id=track.id,  
+            is_monetized_stream=is_monetized
+        )
+        db.add(new_play)
+    if track.plays is None:
+        track.plays = 0
+    track.plays += 1
+    db.commit()
+    return RedirectResponse(url=final_stream_url)
 
 
 @router.get("/download/{track_id}")
