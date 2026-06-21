@@ -15,12 +15,7 @@ async def upload_lyrics(
     content: str, 
     current_artist: User = Depends(verified_artist_required),
     db: Session = Depends(get_db)
-):
-    """
-    Premium feature: Allows Verified Artists with the Maroon Badge 
-    to add or edit lyrics for their tracks.
-    """
-   
+): 
     if not getattr(current_artist, "is_verified_artist", False):
         raise HTTPException(
             status_code=403, 
@@ -56,10 +51,7 @@ async def upload_lyrics(
 
 @router.get("/{track_id}")
 async def get_track_lyrics(track_id: str, db: Session = Depends(get_db)):
-    """
-    Fetches lyrics for a specific track. 
-    Returns the content if found, otherwise a 404.
-    """
+    
     lyrics = db.query(Lyric).filter(Lyric.track_id == track_id).first()
     
     if not lyrics:

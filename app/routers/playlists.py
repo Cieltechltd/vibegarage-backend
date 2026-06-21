@@ -17,13 +17,8 @@ router = APIRouter(prefix="/playlists", tags=["Playlists"])
 
 @router.get("/public")
 def get_public_playlists(db: Session = Depends(get_db), limit: int = 10):
-    """
-    Returns globally visible public playlists created by users or curators.
-    """
     playlists = db.query(Playlist).filter(Playlist.is_public == True).limit(limit).all()
     return playlists
-
-
 
 @router.get("/my-favorites")
 def get_my_favorites(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

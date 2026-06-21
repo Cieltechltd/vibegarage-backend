@@ -28,11 +28,11 @@ def get_artist_overview(
     
    
     if is_eligible:
-        msg = "Monetization active! You are now earning V-Coins."
+        msg = "Monetization active! You are now earning."
     else:
-        # Calculate remaining streams for the user message
+        
         remaining = 10000 - progress.get("current_streams", 0)
-        msg = f"Keep growing! You need {max(0, remaining)} more streams to unlock V-Coin earnings."
+        msg = f"Keep growing! You need {max(0, remaining)} more streams to unlock earnings."
 
    
     return {

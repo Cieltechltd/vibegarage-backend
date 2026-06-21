@@ -45,21 +45,21 @@ def get_artist_profile_or_preview(
     <html>
     <head>
         <meta charset="UTF-8">
-        <meta property="og:title" content="{name} | Vibe Garage Artist" />
+        <meta property="og:title" content="{username} | Vibe Garage Artist" />
         <meta property="og:description" content="{bio} | {total_streams} Total Streams" />
         <meta property="og:image" content="{avatar_url}" />
         <meta property="og:url" content="{profile_url}" />
         <meta property="og:type" content="profile" />
         <meta name="twitter:card" content="summary_large_image">
         <link rel="canonical" href="{profile_url}">
-        <title>{name} - Vibe Garage</title>
+        <title>{username} - Vibe Garage</title>
     </head>
     <body>
         <script>
             window.location.href = "https://vibegarage.app/artists/{artist.username}";
         </script>
         <p style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-            Redirecting to {name}'s profile...
+            Redirecting to {username}'s profile...
         </p>
     </body>
     </html>

@@ -2,7 +2,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional
 from app.schemas.artist import ArtistPublic
 
-# Base URL for your public Supabase storage buckets
+
 SUPABASE_STORAGE_URL = "https://tatswhuxpbxzlprjfvln.supabase.co/storage/v1/object/public"
 
 
@@ -27,7 +27,7 @@ class TrackOut(BaseModel):
         if value.startswith("http://") or value.startswith("https://"):
             return value
         
-        # Strips out duplicate leading slashes if they exist
+        
         clean_path = value.lstrip("/")
         return f"{SUPABASE_STORAGE_URL}/vibegarage/{clean_path}"
 

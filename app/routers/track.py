@@ -142,28 +142,46 @@ async def upload_track(
 @router.get("/stream/{track_id}")
 def stream_track(
     track_id: str, 
+    request: Request, 
     ad_viewed: bool = Query(False),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
+    
+    current_user = None
+    auth_header = request.headers.get("Authorization")
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            from jose import jwt
+            from app.core.config import settings
+            
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user_id: str = payload.get("sub")
+            if user_id:
+                current_user = db.query(User).filter(User.id == user_id).first()
+        except Exception:
+            current_user = None 
     user_owns_track = False
     
-    if current_user.id == track.artist_id:
-        user_owns_track = True
-    elif getattr(track, 'is_for_sale', False):
-        purchase = db.query(Purchase).filter(
-            Purchase.track_id == track_id,
-            Purchase.user_id == current_user.id
-        ).first()
-        if purchase:
+    if current_user:
+        if current_user.id == track.artist_id:
             user_owns_track = True
+        elif getattr(track, 'is_for_sale', False):
+            purchase = db.query(Purchase).filter(
+                Purchase.track_id == track_id,
+                Purchase.user_id == current_user.id
+            ).first()
+            if purchase:
+                user_owns_track = True
     else:
-        user_owns_track = True
+        user_owns_track = False
+
 
     final_path = track.audio_path
     if getattr(track, 'is_for_sale', False) and not user_owns_track:
@@ -173,13 +191,15 @@ def stream_track(
         if not os.path.exists(final_path):
              raise HTTPException(status_code=402, detail="Purchase required for full stream")
 
+    
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
         is_monetized = True
 
+    
     new_play = Play(
         id=str(uuid.uuid4()),
-        user_id=current_user.id,
+        user_id=current_user.id if current_user else None, 
         track_id=track_id,
         is_monetized_stream=is_monetized
     )

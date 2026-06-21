@@ -84,7 +84,7 @@ def deactivate_account(
 ):
     current_user.is_active = False
     db.commit()
-    return {"message": "Account deactivated successfully."}
+    return {"message": "Account deactivated successfully. For reactivation, please contact support."}
 
 
 
