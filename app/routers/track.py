@@ -2,12 +2,12 @@ import uuid
 import os
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from fastapi.responses import FileResponse
 from supabase import create_client, Client
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_optional
 from app.db.deps import get_db
 from app.models.track import Track
 from app.schemas.track import PublicTrackOut
@@ -254,6 +254,42 @@ def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depe
     db.commit()
     db.refresh(track)  
     return {"status": action, "likes": track.likes}
+
+
+@router.get("/public/{track_id}", response_model=PublicTrackOut)
+def get_public_track_by_id(
+    track_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    result = db.query(Track, User).join(User, Track.artist_id == User.id).filter(Track.id == track_id).first()
+    
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Track not found"
+        )
+    
+    track, artist_user = result
+
+    current_user = None
+    auth_header = request.headers.get("Authorization")
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            from jose import jwt
+            from app.core.config import settings
+            
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user_id: str = payload.get("sub")
+            if user_id:
+                current_user = db.query(User).filter(User.id == user_id).first()
+        except Exception:
+            current_user = None
+
+    
+    return format_public_track(track, artist_user, db, current_user)
 
 
 @router.get("/public/latest", response_model=List[PublicTrackOut])

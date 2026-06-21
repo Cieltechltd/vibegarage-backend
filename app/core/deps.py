@@ -5,13 +5,13 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.user import User
 from app.core.config import settings 
-
+from typing import Optional
 
 security = HTTPBearer()
 
 def get_current_user(
     db: Session = Depends(get_db), 
-    token: HTTPAuthorizationCredentials = Depends(security) 
+    token: HTTPAuthorizationCredentials = Depends(security) \
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -30,9 +30,30 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception
         
     return user
+
+
+def get_current_user_optional(
+    db: Session = Depends(get_db),
+    token: Optional[HTTPAuthorizationCredentials] = Depends(security, use_cache=True)
+) -> Optional[User]:
+    if not token or not token.credentials:
+        return None
+        
+    try:
+        payload = jwt.decode(
+            token.credentials, 
+            settings.SECRET_KEY, 
+            algorithms=[settings.ALGORITHM]
+        )
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+            
+        return db.query(User).filter(User.id == user_id).first()
+    except JWTError:
+        return None
