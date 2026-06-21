@@ -8,30 +8,28 @@ from app.models.track import Track
 from app.models.user import User
 from app.models.follow import Follow
 from app.models.clip import GarageClip
-from app.schemas.track import TrackPublic, TrackOut 
+from app.schemas.track import TrackPublic
 from app.schemas.artist import ArtistPublic
+from app.routers.track import format_public_track
+
 
 router = APIRouter(prefix="/explore", tags=["Explore & Search"])
 
 
-
-@router.get("/feed", response_model=List[TrackOut])
+@router.get("/feed")
 def get_personalized_feed(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-   
     
     followed_ids = db.query(Follow.artist_id).filter(
         Follow.follower_id == current_user.id
     ).all()
     
-    
     ids = [a_id for (a_id,) in followed_ids]
 
     social_tracks = []
     if ids:
-        
         social_tracks = (
             db.query(Track)
             .filter(Track.artist_id.in_(ids))
@@ -40,7 +38,7 @@ def get_personalized_feed(
             .all()
         )
 
-   
+    
     if not social_tracks:
         trending_tracks = (
             db.query(Track)
@@ -48,10 +46,9 @@ def get_personalized_feed(
             .limit(20)
             .all()
         )
-        return trending_tracks
+        return [format_public_track(t, t.artist, db, current_user) for t in trending_tracks]
 
-    return social_tracks
-
+    return [format_public_track(t, t.artist, db, current_user) for t in social_tracks]
 
 
 @router.get("/search")
@@ -59,7 +56,6 @@ def global_search(
     q: str = Query(..., min_length=1),
     db: Session = Depends(get_db)
 ):
-   
     track_results = (
         db.query(Track)
         .join(User, Track.artist_id == User.id)
@@ -88,23 +84,23 @@ def global_search(
         "results": {
             "tracks": [
                 TrackPublic(
-                    id=t.id, 
+                    id=str(t.id), 
                     title=t.title, 
                     play_count=getattr(t, 'plays', 0), 
                     like_count=getattr(t, 'likes', 0), 
-                    artist=ArtistPublic(id=t.artist.id, stage_name=t.artist.stage_name)
+                    artist=ArtistPublic(id=str(t.artist.id), stage_name=t.artist.stage_name)
                 ) for t in track_results
             ],
             "artists": [
                 {
-                    "id": a.id, 
+                    "id": str(a.id), 
                     "stage_name": a.stage_name or a.username,
                     "is_verified": a.is_verified_artist
                 } for a in artist_results
             ],
             "clips": [
                 {
-                    "id": c.id,
+                    "id": str(c.id),
                     "video_url": c.video_url,
                     "caption": c.caption,
                     "artist_name": c.artist.stage_name or c.artist.username,
@@ -113,6 +109,7 @@ def global_search(
             ]
         }
     }
+
 
 @router.get("/rising-stars")
 def get_rising_stars(db: Session = Depends(get_db), limit: int = 10):
@@ -126,6 +123,6 @@ def get_rising_stars(db: Session = Depends(get_db), limit: int = 10):
         .limit(limit).all()
     )
     return [
-        {"id": a.id, "name": a.stage_name or a.username, "followers": count} 
+        {"id": str(a.id), "name": a.stage_name or a.username, "followers": count} 
         for a, count in stars
     ]
