@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from supabase import create_client, Client
 from app.core.deps import get_current_user, get_current_user_optional
 from app.db.deps import get_db
@@ -142,7 +142,7 @@ async def upload_track(
 @router.get("/stream/{track_id}")
 def stream_track(
     track_id: str, 
-    request: Request, 
+    request: Request,
     ad_viewed: bool = Query(False),
     db: Session = Depends(get_db)
 ):
@@ -166,9 +166,10 @@ def stream_track(
             if user_id:
                 current_user = db.query(User).filter(User.id == user_id).first()
         except Exception:
-            current_user = None 
+            current_user = None
+
+
     user_owns_track = False
-    
     if current_user:
         if current_user.id == track.artist_id:
             user_owns_track = True
@@ -182,34 +183,40 @@ def stream_track(
     else:
         user_owns_track = False
 
-
-    final_path = track.audio_path
+    final_stream_url = track.audio_path
+    
     if getattr(track, 'is_for_sale', False) and not user_owns_track:
-        preview_filename = f"preview_{os.path.basename(track.audio_path)}"
-        final_path = os.path.join("app/uploads/previews", preview_filename)
+        base_filename = os.path.basename(track.audio_path)
+        final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
         
-        if not os.path.exists(final_path):
-             raise HTTPException(status_code=402, detail="Purchase required for full stream")
+        if not track.audio_path.startswith("http"):
+            raise HTTPException(status_code=402, detail="Purchase required for full stream")
 
     
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
         is_monetized = True
-
-    
     new_play = Play(
         id=str(uuid.uuid4()),
-        user_id=current_user.id if current_user else None, 
+        user_id=current_user.id if current_user else None,
         track_id=track_id,
         is_monetized_stream=is_monetized
     )
     db.add(new_play)
+    
+    
     db.query(Track).filter(Track.id == track_id).update({Track.plays: Track.plays + 1})
     
     db.commit()
     db.refresh(track)
 
-    return FileResponse(path=final_path, media_type="audio/mpeg")
+    if final_stream_url.startswith("http"):
+        return RedirectResponse(url=final_stream_url)
+    
+    if not os.path.exists(final_stream_url):
+        raise HTTPException(status_code=404, detail="Audio file asset missing from storage provider.")
+        
+    return FileResponse(path=final_stream_url, media_type="audio/mpeg")
 
 
 @router.get("/download/{track_id}")
