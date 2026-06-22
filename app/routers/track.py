@@ -198,18 +198,26 @@ def stream_track(
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
         is_monetized = True
 
-    if current_user is not None:
-        new_play = Play(
-            id=str(uuid.uuid4()),
-            user_id=current_user.id,
-            track_id=track.id,  
-            is_monetized_stream=is_monetized
-        )
-        db.add(new_play)
-    if track.plays is None:
-        track.plays = 0
-    track.plays += 1
-    db.commit()
+   
+    try:
+        if current_user is not None:
+            new_play = Play(
+                id=str(uuid.uuid4()),
+                user_id=str(current_user.id),  
+                track_id=str(track.id),        
+                is_monetized_stream=is_monetized
+            )
+            db.add(new_play)
+        
+        if track.plays is None:
+            track.plays = 0
+        track.plays += 1
+        
+        db.commit()
+    except Exception as db_error:
+        db.rollback()
+        print(f"!!! CRITICAL DATABASE ERROR ENCOUNTERED DURING TRACK STREAM: {str(db_error)}")
+
     return RedirectResponse(url=final_stream_url)
 
 
