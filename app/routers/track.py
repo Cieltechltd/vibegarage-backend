@@ -89,7 +89,7 @@ async def upload_track(
         unique_id = str(uuid.uuid4())
         
         audio_ext = os.path.splitext(audio.filename)[1] or ".mp3"
-        audio_filename = f"tracks/{unique_id}{audio_ext}"
+        audio_filename = f"audio/{unique_id}{audio_ext}"
         audio_data = await audio.read()
         
         supabase_client.storage.from_(BUCKET_NAME).upload(
@@ -152,7 +152,6 @@ def stream_track(
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
     
-    
     current_user = None
     auth_header = request.headers.get("Authorization")
     
@@ -169,7 +168,6 @@ def stream_track(
         except Exception:
             current_user = None
 
-   
     user_owns_track = False
     if current_user:
         if current_user.id == track.artist_id:
@@ -184,12 +182,11 @@ def stream_track(
     else:
         user_owns_track = False
 
-    
     audio_path_str = track.audio_path
     
     if not audio_path_str.startswith("http"):
         base_filename = os.path.basename(audio_path_str)
-        audio_path_str = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/tracks/{base_filename}"
+        audio_path_str = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/audio/{base_filename}"
 
     final_stream_url = audio_path_str
     
@@ -197,7 +194,6 @@ def stream_track(
         base_filename = os.path.basename(audio_path_str)
         final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
 
-    
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
         is_monetized = True
@@ -313,7 +309,6 @@ def get_public_track_by_id(
         except Exception:
             current_user = None
 
-    
     return format_public_track(track, artist_user, db, current_user)
 
 
