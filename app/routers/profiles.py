@@ -1,27 +1,74 @@
 import io
 import segno
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, desc
+from typing import List
 from app.db.database import get_db
 from app.models.user import User
 from app.models.track import Track
 from app.models.play import Play
+from app.models.follow import Follow 
 
 router = APIRouter(prefix="/public/artists", tags=["Discovery & Profiles"])
 
 def find_artist_by_username(username: str, db: Session) -> User:
     clean_username = username.strip()
-    artist = db.query(User).filter(User.username == clean_username).first()
+    artist = db.query(User).filter(User.username.ilike(clean_username)).first()
 
-    if not artist or artist.role != "ARTIST":
+    if not artist or artist.role.upper() != "ARTIST":
         raise HTTPException(
             status_code=404, 
             detail="Artist profile not found"
         )
         
     return artist
+
+
+@router.get("/all")
+def get_all_artists_public(
+    limit: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db)
+):
+    offset = (page - 1) * limit
+    
+    artists_query = db.query(User).filter(User.role.ilike("artist"))
+    
+    total_count = artists_query.count()
+    artists = artists_query.offset(offset).limit(limit).all()
+    
+    artists_list = []
+    for artist in artists:
+        total_streams = db.query(func.count(Play.id)).join(Track).filter(
+            Track.artist_id == artist.id
+        ).scalar() or 0
+       
+        follower_count = db.query(func.count(Follow.id)).filter(
+            Follow.artist_id == artist.id
+        ).scalar() or 0
+        
+        artists_list.append({
+            "id": str(artist.id),
+            "username": artist.username,
+            "stage_name": artist.stage_name or artist.username,
+            "avatar": artist.avatar_url or "https://vibegarage.app/static/default-avatar.png",
+            "is_verified": getattr(artist, 'is_verified', False) or getattr(artist, 'is_verified_artist', False),
+            "bio": artist.bio or "",
+            "stats": {
+                "total_streams": total_streams,
+                "followers": follower_count
+            }
+        })
+        
+    return {
+        "total_artists": total_count,
+        "page": page,
+        "limit": limit,
+        "artists": artists_list
+    }
+
 
 @router.get("/profile/{username}", response_class=HTMLResponse)
 def get_artist_profile_or_preview(
@@ -81,7 +128,7 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
         "username": artist.username,             
         "stage_name": artist.stage_name or artist.username,
         "avatar": artist.avatar_url or "https://vibegarage.app/static/default-avatar.png",
-        "is_verified": artist.is_verified,  
+        "is_verified": getattr(artist, 'is_verified', False) or getattr(artist, 'is_verified_artist', False),  
         "bio": artist.bio,
         "joined_date": artist.created_at.strftime("%B %Y") if hasattr(artist, 'created_at') else None,
         "stats": {
@@ -92,8 +139,8 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
             {
                 "id": t.id,
                 "title": t.title,
-                "cover_art": t.cover_art,
-                "duration": t.duration
+                "cover_art": getattr(t, 'cover_path', getattr(t, 'cover_art', '')),
+                "duration": getattr(t, 'duration', 0.0)
             } for t in tracks
         ]
     }

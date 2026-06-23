@@ -34,6 +34,7 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
         {
             "id": track.id,
             "title": track.title,
+            "audio_path": track.audio_path,
             "cover_path": track.cover_path,
             "artist_name": db.query(User.stage_name).filter(User.id == track.artist_id).scalar(),
             "trending_score": recent_plays

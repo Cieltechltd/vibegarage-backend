@@ -30,34 +30,39 @@ def get_my_favorites(db: Session = Depends(get_db), current_user: User = Depends
     if not fav_playlist:
         return {"name": "Favorites", "cover_image": f"{settings.BASE_URL}/static/default-playlist.png", "tracks": []}
 
-
     results = (
-        db.query(Track)
+        db.query(Track, User)
         .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+        .join(User, Track.artist_id == User.id)
         .filter(PlaylistTrack.playlist_id == fav_playlist.id)
         .all()
     )
 
     playlist_content = []
-    for track in results:
+    for track, artist in results:
         is_owned = db.query(Library).filter(
             Library.user_id == current_user.id, 
             Library.track_id == track.id
         ).first() is not None
 
+        
+        artist_name = artist.stage_name or artist.username or "Unknown Artist"
+        is_verified = getattr(artist, 'is_verified_artist', False)
+        audio_url = getattr(track, 'audio_path', '') 
+
         playlist_content.append({
-            "id": track.id,
+            "id": str(track.id),
             "title": track.title,
-            "artist": track.artist.stage_name,
-            "is_verified": track.artist.is_verified_artist,
-            "audio_url": track.file_url if is_owned else track.preview_url,
+            "artist": artist_name,
+            "is_verified": is_verified,
+            "audio_url": track.file_url if (hasattr(track, 'file_url') and is_owned) else audio_url,
             "is_preview": not is_owned
         })
 
     return {
         "id": fav_playlist.id,
         "name": fav_playlist.name,
-        "cover_image": fav_playlist.cover_image,
+        "cover_image": fav_playlist.cover_image or f"{settings.BASE_URL}/static/default-playlist.png",
         "tracks": playlist_content
     }
 
@@ -147,26 +152,32 @@ def get_playlist_details(
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
+
     results = (
-        db.query(Track)
+        db.query(Track, User)
         .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+        .join(User, Track.artist_id == User.id)
         .filter(PlaylistTrack.playlist_id == playlist_id)
         .all()
     )
 
     playlist_content = []
-    for track in results:
+    for track, artist in results:
         is_owned = db.query(Library).filter(
             Library.user_id == current_user.id, 
             Library.track_id == track.id
         ).first() is not None
 
+        artist_name = artist.stage_name or artist.username or "Unknown Artist"
+        is_verified = getattr(artist, 'is_verified_artist', False)
+        audio_url = getattr(track, 'audio_path', '')
+
         playlist_content.append({
-            "id": track.id,
+            "id": str(track.id),
             "title": track.title,
-            "artist": track.artist.stage_name,
-            "is_verified": track.artist.is_verified_artist,
-            "audio_url": track.file_url if is_owned else track.preview_url,
+            "artist": artist_name,
+            "is_verified": is_verified,
+            "audio_url": track.file_url if (hasattr(track, 'file_url') and is_owned) else audio_url,
             "is_preview": not is_owned
         })
 
