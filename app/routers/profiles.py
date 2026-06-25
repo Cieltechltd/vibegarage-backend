@@ -70,10 +70,11 @@ def get_all_artists_public(
     }
 
 
-@router.get("/profile/{username}", response_class=HTMLResponse)
+@router.get("/profile/{username}")
 def get_artist_profile_or_preview(
     username: str, 
     request: Request, 
+    json_mode: bool = Query(False, description="Set to true if your client application needs explicit raw data instead of HTML redirection"),
     db: Session = Depends(get_db)
 ):
     artist = find_artist_by_username(username, db)
@@ -86,6 +87,30 @@ def get_artist_profile_or_preview(
     bio = artist.bio or f"Listen to {name} on Vibe Garage."
     avatar_url = artist.avatar_url or "https://vibegarage.app/static/default-avatar.png"
     profile_url = str(request.url)
+    accept_header = request.headers.get("accept", "")
+    if json_mode or "application/json" in accept_header:
+        tracks = db.query(Track).filter(Track.artist_id == artist.id).all()
+        return {
+            "id": str(artist.id),                         
+            "username": artist.username,             
+            "stage_name": name,
+            "avatar": avatar_url,
+            "is_verified": getattr(artist, 'is_verified', False) or getattr(artist, 'is_verified_artist', False),  
+            "bio": artist.bio,
+            "joined_date": artist.created_at.strftime("%B %Y") if hasattr(artist, 'created_at') else None,
+            "stats": {
+                "total_streams": total_streams,
+                "track_count": len(tracks)
+            },
+            "tracks": [
+                {
+                    "id": str(t.id),
+                    "title": t.title,
+                    "cover_art": getattr(t, 'cover_path', getattr(t, 'cover_art', '')),
+                    "duration": getattr(t, 'duration', 0.0)
+                } for t in tracks
+            ]
+        }
 
     html_content = f"""
     <!DOCTYPE html>
@@ -112,6 +137,7 @@ def get_artist_profile_or_preview(
     </html>
     """
     return HTMLResponse(content=html_content)
+
 
 @router.get("/profile/{username}/data")
 def get_artist_raw_data(username: str, db: Session = Depends(get_db)):

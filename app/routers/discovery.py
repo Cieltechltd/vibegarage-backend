@@ -18,7 +18,7 @@ router = APIRouter(prefix="/discovery", tags=["Discovery"])
 @router.get("/trending")
 def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
     
-    time_threshold = datetime.utcnow() - timedelta(days=7)
+    time_threshold = datetime.utcnow() - timedelta(days=3)
 
     trending_query = (
         db.query(Track, func.count(Play.id).label("recent_plays"))

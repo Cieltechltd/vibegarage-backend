@@ -140,27 +140,6 @@ def artist_stats(db: Session = Depends(get_db), current_user = Depends(get_curre
         "top_track": top_track
     }
 
-@router.get("/profile/{artist_id}")
-def get_public_artist_profile(artist_id: str, db: Session = Depends(get_db)):
-    """Public-facing profile for fans."""
-    artist = db.query(User).filter(User.id == artist_id, User.role == "artist").first()
-    if not artist:
-        raise HTTPException(status_code=404, detail="Artist not found")
-
-    tracks = db.query(Track).filter(Track.artist_id == artist_id).all()
-    clips = db.query(GarageClip).filter(GarageClip.artist_id == artist_id).all()
-
-    return {
-        "id": artist.id,
-        "username": artist.username,
-        "stage_name": artist.stage_name or "Unknown Artist",
-        "bio": getattr(artist, 'bio', ""),
-        "avatar_url": getattr(artist, 'avatar_url', None),
-        "is_verified_artist": artist.is_verified_artist,
-        "tracks": tracks,
-        "clips": [{"id": c.id, "caption": getattr(c, 'caption', 'Clip'), "url": c.video_url} for c in clips]
-    }
-
 @router.post("/{artist_id}/follow")
 def follow_artist(artist_id: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     """Follow/Unfollow logic."""

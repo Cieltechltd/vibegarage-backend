@@ -17,6 +17,8 @@ def get_account_overview(current_user: User = Depends(get_current_user)):
     
     return {
         "id": current_user.id,
+        "username": current_user.username,
+        "stage_name": getattr(current_user, 'stage_name', None),
         "email": current_user.email,
         "role": current_user.role,
         "is_verified": getattr(current_user, 'is_verified_artist', False),
