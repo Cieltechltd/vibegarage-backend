@@ -37,7 +37,7 @@ def format_public_track(track: Track, artist_user: User, db: Session, current_us
         like_exists = db.query(Like).filter(Like.track_id == track.id, Like.user_id == current_user.id).first()
         is_liked = True if like_exists else False
 
-    artist_name = artist_user.stage_name or artist_user.email or artist_user.username if artist_user else "Unknown Artist"
+    artist_name = artist_user.stage_name or artist_user.username if artist_user else "Unknown Artist"
     album_title = track.album.title if (hasattr(track, 'album') and track.album) else "Single"
 
     return {
