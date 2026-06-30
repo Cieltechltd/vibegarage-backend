@@ -1,5 +1,4 @@
-import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, logger
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from typing import List
@@ -13,7 +12,6 @@ from app.models.lyrics import Lyric
 from app.core.config import settings
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
-logger = logging.getLogger("vibe-garage-discovery")
 
 
 @router.get("/trending")
@@ -33,7 +31,7 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
 
     return [
         {
-            "id": track.id,
+            "id": str(track.id),
             "title": track.title,
             "audio_path": track.audio_path,
             "cover_path": track.cover_path,
@@ -48,7 +46,7 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
 def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
     try:
         query_results = (
-            db.query(Track, User)
+            db.query(Track, User.username)
             .join(User, Track.artist_id == User.id)
             .order_by(desc(Track.id))
             .limit(limit)
@@ -56,22 +54,21 @@ def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
         )
         
         response_data = []
-        for track, artist in query_results:
+        for track, username in query_results:
             response_data.append({
-                "id": track.id,
+                "id": str(track.id),
                 "title": track.title,
                 "audio_path": track.audio_path,
                 "cover_path": track.cover_path,
-                "plays": getattr(track, 'plays', 0),
-                "likes": getattr(track, 'likes', 0),
-                "genre": getattr(track, 'genre', "Unknown"),
-                "duration": getattr(track, 'duration', 0.0),
-                "price": getattr(track, 'price', 0.0),
-                "is_for_sale": getattr(track, 'is_for_sale', False),
-                "album_id": track.album_id,
-                "artist_id": track.artist_id,
-                "username": artist.username,
-                "artist_name": artist.stage_name or artist.username
+                "plays": track.plays,
+                "likes": track.likes,
+                "genre": track.genre,
+                "duration": track.duration,
+                "price": track.price,
+                "is_for_sale": track.is_for_sale,
+                "album_id": str(track.album_id) if track.album_id else None,
+                "artist_id": str(track.artist_id),
+                "username": username
             })
 
         return response_data
@@ -99,18 +96,18 @@ def get_garage_feed(db: Session = Depends(get_db), limit: int = 20):
         has_lyrics = db.query(Lyric).filter(Lyric.track_id == clip.track_id).first() is not None
 
         feed_items.append({
-            "clip_id": clip.id,
+            "clip_id": str(clip.id),
             "video_url": clip.video_url,
             "caption": clip.caption,
             "artist": {
-                "id": artist.id,
+                "id": str(artist.id),
                 "username": artist.username,
                 "is_verified": artist.is_verified_artist, 
-                "avatar": getattr(artist, 'avatar_url', None) or getattr(artist, 'avatar', f"{settings.BASE_URL}/static/default-avatar.png")
+                "avatar": getattr(artist, 'avatar', f"{settings.BASE_URL}/static/default-avatar.png")
             },
             "meta": {
                 "has_lyrics": has_lyrics,
-                "track_id": clip.track_id
+                "track_id": str(clip.track_id) if clip.track_id else None
             }
         })
 
