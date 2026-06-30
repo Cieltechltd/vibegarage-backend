@@ -15,7 +15,7 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     stage_name: str | None = None
     dob: date = Field(..., description="User's date of birth in YYYY-MM-DD format")
-    role: UserRole = UserRole.LISTENER # Default to LISTENER, can be overridden to ARTIST during registration
+    role: UserRole = UserRole.LISTENER 
 
 class UserResponse(BaseModel):
     id: str
@@ -23,6 +23,7 @@ class UserResponse(BaseModel):
     username: Optional[str] = None
     is_verified_artist: bool
     role: str
+    avatar_url: Optional[str] = None  
 
     class Config:
         from_attributes = True

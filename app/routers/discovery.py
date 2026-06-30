@@ -14,17 +14,17 @@ from app.core.config import settings
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
 
 
-
 @router.get("/trending")
 def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
     
     time_threshold = datetime.utcnow() - timedelta(days=10)
 
     trending_query = (
-        db.query(Track, func.count(Play.id).label("recent_plays"))
+        db.query(Track, User, func.count(Play.id).label("recent_plays"))
         .join(Play, Play.track_id == Track.id)
+        .join(User, Track.artist_id == User.id)
         .filter(Play.created_at >= time_threshold)
-        .group_by(Track.id)
+        .group_by(Track.id, User.id)
         .order_by(desc("recent_plays"))
         .limit(limit)
         .all()
@@ -36,10 +36,10 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
             "title": track.title,
             "audio_path": track.audio_path,
             "cover_path": track.cover_path,
-            "artist_name": db.query(User.stage_name).filter(User.id == track.artist_id).scalar(),
+            "artist_name": artist.stage_name or artist.username,
             "trending_score": recent_plays
         }
-        for track, recent_plays in trending_query
+        for track, artist, recent_plays in trending_query
     ]
 
 

@@ -12,9 +12,9 @@ from typing import Optional
 from app.models.user import User
 from app.db.deps import get_db
 from app.core.security import (
-    hash_password, 
-    verify_password, 
-    create_access_token, 
+    hash_password, \
+    verify_password, \
+    create_access_token, \
     generate_vg_id,
     generate_verification_code,
     send_welcome_verification_email  
@@ -100,7 +100,11 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
+    if not current_user.avatar_url:
+        current_user.avatar_url = "https://vibegarage.app/static/default-avatar.png"
+        
     return current_user
+
 
 @router.post("/verify-email")
 def verify_email(email: str, code: str, db: Session = Depends(get_db)):
@@ -111,7 +115,6 @@ def verify_email(email: str, code: str, db: Session = Depends(get_db)):
     if user.is_active:
         return {"message": "Account already active"}
 
-    
     if not user.verification_code or not hmac.compare_digest(user.verification_code, code):
         raise HTTPException(status_code=400, detail="Invalid verification code")
     
@@ -148,7 +151,6 @@ def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depe
 
 @router.post("/2fa/enable")
 def enable_2fa(code: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-   
     current_user = db.merge(current_user)
     db.refresh(current_user)
     
