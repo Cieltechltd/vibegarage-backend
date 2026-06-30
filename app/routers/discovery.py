@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, logger
+import logging
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from typing import List
@@ -12,11 +13,11 @@ from app.models.lyrics import Lyric
 from app.core.config import settings
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
+logger = logging.getLogger("vibe-garage-discovery")
 
 
 @router.get("/trending")
 def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
-    
     time_threshold = datetime.utcnow() - timedelta(days=10)
 
     trending_query = (
@@ -47,7 +48,7 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
 def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
     try:
         query_results = (
-            db.query(Track, User.username)
+            db.query(Track, User)
             .join(User, Track.artist_id == User.id)
             .order_by(desc(Track.id))
             .limit(limit)
@@ -55,21 +56,22 @@ def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
         )
         
         response_data = []
-        for track, username in query_results:
+        for track, artist in query_results:
             response_data.append({
                 "id": track.id,
                 "title": track.title,
                 "audio_path": track.audio_path,
                 "cover_path": track.cover_path,
-                "plays": track.plays,
-                "likes": track.likes,
-                "genre": track.genre,
-                "duration": track.duration,
-                "price": track.price,
-                "is_for_sale": track.is_for_sale,
+                "plays": getattr(track, 'plays', 0),
+                "likes": getattr(track, 'likes', 0),
+                "genre": getattr(track, 'genre', "Unknown"),
+                "duration": getattr(track, 'duration', 0.0),
+                "price": getattr(track, 'price', 0.0),
+                "is_for_sale": getattr(track, 'is_for_sale', False),
                 "album_id": track.album_id,
                 "artist_id": track.artist_id,
-                "username": username
+                "username": artist.username,
+                "artist_name": artist.stage_name or artist.username
             })
 
         return response_data
@@ -79,10 +81,8 @@ def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Could not fetch new releases")
 
 
-
 @router.get("/feed")
 def get_garage_feed(db: Session = Depends(get_db), limit: int = 20):
-    
     query_results = (
         db.query(GarageClip, User)
         .join(User, GarageClip.artist_id == User.id)
@@ -106,7 +106,7 @@ def get_garage_feed(db: Session = Depends(get_db), limit: int = 20):
                 "id": artist.id,
                 "username": artist.username,
                 "is_verified": artist.is_verified_artist, 
-                "avatar": getattr(artist, 'avatar', f"{settings.BASE_URL}/static/default-avatar.png")
+                "avatar": getattr(artist, 'avatar_url', None) or getattr(artist, 'avatar', f"{settings.BASE_URL}/static/default-avatar.png")
             },
             "meta": {
                 "has_lyrics": has_lyrics,

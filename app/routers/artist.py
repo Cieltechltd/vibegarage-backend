@@ -15,7 +15,7 @@ from app.models.follow import Follow
 from app.core.config import settings 
 from app.services.file_storage import save_file 
 from app.schemas.artist import (
-    ArtistStatsOut, 
+    ArtistStatsOut, \
     FullArtistProfileResponse
 )
 from app.schemas.track import TrackOut 
@@ -41,7 +41,7 @@ def get_artist_dashboard(
     is_verified = getattr(current_user, "is_verified_artist", False)
 
     return {
-        "artist_name": current_user.stage_name,
+        "artist_name": current_user.stage_name or current_user.username,
         "verification_status": "Maroon Badge Verified" if is_verified else "Standard Artist",
         "stats": {
             "total_tracks": tracks_count,
@@ -50,6 +50,7 @@ def get_artist_dashboard(
         "premium_access": is_verified,
         "message": "Welcome to your Artist Hub. Upload tracks and engage with your listeners."
     }
+
 
 @router.get("/premium/dashboard")
 def get_premium_dashboard(
@@ -70,7 +71,7 @@ def get_premium_dashboard(
     
     return {
         "status": "Verified",
-        "message": f"Welcome back to the Inner Circle, {current_user.stage_name}",
+        "message": f"Welcome back to the Inner Circle, {current_user.stage_name or current_user.username}",
         "tools": {
             "garage_clips": {"status": "Active", "count": clips_count},
             "lyrics_manager": {"status": "Active"}
@@ -108,7 +109,6 @@ def upload_track(
     db.commit()
     db.refresh(track)
 
-    
     return {
         "id": str(track.id), 
         "title": track.title,
@@ -121,10 +121,8 @@ def upload_track(
     }
 
 
-
 @router.get("/stats", response_model=ArtistStatsOut)
 def artist_stats(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """Detailed analytics for the artist's tracks."""
     tracks_query = db.query(Track).filter(Track.artist_id == current_user.id)
     total_tracks = tracks_query.count()
     total_plays = db.query(func.coalesce(func.sum(Track.plays), 0)).filter(Track.artist_id == current_user.id).scalar()
@@ -140,31 +138,10 @@ def artist_stats(db: Session = Depends(get_db), current_user = Depends(get_curre
         "top_track": top_track
     }
 
-@router.post("/{artist_id}/follow")
-def follow_artist(artist_id: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """Follow/Unfollow logic."""
-    if artist_id == current_user.id:
-        raise HTTPException(status_code=400, detail="You cannot follow yourself")
-    
-    artist = db.query(User).filter(User.id == artist_id, User.role == "artist").first()
-    if not artist:
-        raise HTTPException(status_code=404, detail="Artist not found")
-    
-    existing = db.query(Follow).filter(Follow.artist_id == artist_id, Follow.follower_id == current_user.id).first()
-    if existing:
-        db.delete(existing)
-        action = "unfollowed"
-    else:
-        follow = Follow(artist_id=artist_id, follower_id=current_user.id)
-        db.add(follow)
-        action = "followed"
-    
-    db.commit()
-    return {"status": action}
 
 @router.get("/{artist_id}/follow-status")
 def follow_status(artist_id: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """Check if following and get follower count."""
-    is_following = db.query(Follow).filter(Follow.artist_id == artist_id, Follow.follower_id == current_user.id).first() is not None
+   
+    is_following = db.query(Follow).filter(Follow.artist_id == artist_id, Follow.user_id == current_user.id).first() is not None
     followers = db.query(Follow).filter(Follow.artist_id == artist_id).count()
     return {"is_following": is_following, "followers": followers}
