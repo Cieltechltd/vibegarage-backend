@@ -192,7 +192,7 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
     tracks = db.query(Track).filter(Track.artist_id == artist.id).all()
 
     return {
-        "id": artist.id,                         
+        "id": str(artist.id),                         
         "username": artist.username,             
         "stage_name": artist.stage_name or artist.username,
         "avatar": getattr(artist, 'avatar_url', None) or getattr(artist, 'avatar', "https://vibegarage.app/static/default-avatar.png"),
@@ -205,7 +205,7 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
         },
         "tracks": [
             {
-                "id": t.id,
+                "id": str(t.id),
                 "title": t.title,
                 "cover_art": getattr(t, 'cover_path', getattr(t, 'cover_art', '')),
                 "duration": getattr(t, 'duration', 0.0)
