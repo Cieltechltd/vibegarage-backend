@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from app.db.database import get_db
 from app.models.album import Album
 from app.models.track import Track
 from app.models.user import User
-from app.schemas.album import AlbumCreate, AlbumOut, AlbumPublic
+from app.schemas.album import AlbumOut, AlbumPublic
 from app.core.deps import get_current_user
 from supabase import create_client, Client
 import uuid
@@ -32,13 +32,11 @@ async def create_album_with_tracks(
     album_cover_image: Optional[str] = Form(None),
     release_date: Optional[str] = Form(None),
     
-   
     track_titles: List[str] = Form(...),
     track_genres: List[str] = Form([]),
     track_durations: List[float] = Form([]),
     track_prices: List[float] = Form([]),
     track_is_for_sale: List[bool] = Form([]),
-    
     
     audio_files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
@@ -56,7 +54,6 @@ async def create_album_with_tracks(
             detail=f"Mismatch between number of audio files ({len(audio_files)}) and track titles ({len(track_titles)})."
         )
 
-   
     album_id = str(uuid.uuid4())
     album = Album(
         id=album_id, 
@@ -70,10 +67,8 @@ async def create_album_with_tracks(
     db.add(album)
 
     try:
-        
         for index, audio in enumerate(audio_files):
             track_id = str(uuid.uuid4())
-            
             
             audio_ext = os.path.splitext(audio.filename)[1] or ".mp3"
             audio_filename = f"audio/{track_id}{audio_ext}"
@@ -90,7 +85,6 @@ async def create_album_with_tracks(
             price = track_prices[index] if index < len(track_prices) else 0.0
             is_sale = track_is_for_sale[index] if index < len(track_is_for_sale) else False
 
-            
             track = Track(
                 id=track_id, 
                 title=track_titles[index],
@@ -118,21 +112,44 @@ async def create_album_with_tracks(
 
 
 @router.post("/", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
-def create_album(
-    album_data: AlbumCreate,
+async def create_album_draft_form(
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    release_date: Optional[str] = Form(None),
+    cover_image: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
         raise HTTPException(status_code=403, detail="Only artists can create albums")
 
+    album_id = str(uuid.uuid4())
+    cover_url = None
+
+    if cover_image:
+        if not supabase_client:
+            raise HTTPException(status_code=500, detail="Cloud storage service credentials are not configured.")
+        try:
+            cover_ext = os.path.splitext(cover_image.filename)[1] or ".jpg"
+            cover_filename = f"covers/{album_id}{cover_ext}"
+            cover_data = await cover_image.read()
+            
+            supabase_client.storage.from_(BUCKET_NAME).upload(
+                path=cover_filename,
+                file=cover_data,
+                file_options={"content-type": cover_image.content_type}
+            )
+            cover_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to upload album cover: {str(e)}")
+
     album = Album(
-        id=str(uuid.uuid4()), 
-        title=album_data.title,
-        description=album_data.description,
-        cover_image=album_data.cover_image,
+        id=album_id, 
+        title=title,
+        description=description,
+        cover_image=cover_url,
         artist_id=current_user.id,
-        release_date=album_data.release_date,
+        release_date=release_date,
         is_published=False 
     )
 
@@ -147,7 +164,7 @@ def create_album(
         "cover_image": album.cover_image,
         "artist_id": str(album.artist_id),
         "release_date": album.release_date,
-        "is_published": getattr(album, 'is_published', False)
+        "is_published": False
     }
 
 
@@ -164,6 +181,7 @@ def get_my_albums(
     return [
         {
             "id": str(a.id),
+            "album_id": str(a.id),
             "title": a.title,
             "description": a.description,
             "cover_image": a.cover_image,
@@ -174,7 +192,7 @@ def get_my_albums(
     ]
 
 
-@router.get("/drafts", response_model=List[AlbumOut])
+@router.get("/drafts", response_model=List[Dict[str, Any]])
 def get_my_album_drafts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -186,10 +204,10 @@ def get_my_album_drafts(
         Album.artist_id == current_user.id,
         (Album.is_published == False) | (Album.is_published == None)
     ).all()
-
     return [
         {
             "id": str(a.id),
+            "album_id": str(a.id),
             "title": a.title,
             "description": a.description,
             "cover_image": a.cover_image,
@@ -203,16 +221,22 @@ def get_my_album_drafts(
 @router.put("/{album_id}/tracks", status_code=status.HTTP_200_OK)
 def add_tracks_to_album(
     album_id: str,
-    track_ids: List[str],
+    track_ids: List[str] = Form(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     album = db.query(Album).filter(Album.id == album_id, Album.artist_id == current_user.id).first()
     if not album:
         raise HTTPException(status_code=404, detail="Album not found or unauthorized.")
+    parsed_track_ids = []
+    for track in track_ids:
+        if "," in track:
+            parsed_track_ids.extend([t.strip() for t in track.split(",") if t.strip()])
+        else:
+            parsed_track_ids.append(track.strip())
 
     updated_count = db.query(Track).filter(
-        Track.id.in_(track_ids),
+        Track.id.in_(parsed_track_ids),
         Track.artist_id == current_user.id
     ).update({Track.album_id: album_id}, synchronize_session=False)
 
@@ -236,6 +260,7 @@ def get_album(
 
     return {
         "id": str(album.id),
+        "album_id": str(album.id),
         "title": album.title,
         "description": album.description,
         "cover_image": album.cover_image,

@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Body
 from sqlalchemy.orm import Session
-import shutil
 import os
 from pydantic import BaseModel
 from app.db.database import get_db
@@ -8,13 +7,18 @@ from app.core.deps import get_current_user
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import hash_password, verify_password 
+from supabase import create_client, Client
 
 router = APIRouter(prefix="/account", tags=["Account Management"])
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+BUCKET_NAME = "vibegarage"
 
 
 @router.get("/me")
 def get_account_overview(current_user: User = Depends(get_current_user)):
-    
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -23,13 +27,13 @@ def get_account_overview(current_user: User = Depends(get_current_user)):
         "role": current_user.role,
         "is_verified": getattr(current_user, 'is_verified_artist', False),
         "created_at": current_user.created_at,
-        "avatar_url": getattr(current_user, 'avatar_url', None)
+        "avatar_url": getattr(current_user, 'avatar', None) or getattr(current_user, 'avatar_url', None)
     }
 
 @router.patch("/update-profile")
 def update_profile(
-    display_name: str = None,
-    bio: str = None,
+    display_name: str = Query(None),
+    bio: str = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -47,35 +51,54 @@ async def upload_avatar(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if not supabase_client:
+        raise HTTPException(status_code=500, detail="Cloud storage service credentials are not configured.")
+
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    os.makedirs("uploads/avatars", exist_ok=True)
-    file_ext = file.filename.split(".")[-1]
-    file_name = f"user_{current_user.id}.{file_ext}"
-    file_path = os.path.join("uploads/avatars", file_name)
+    try:
+        file_ext = os.path.splitext(file.filename)[1] or ".jpg"
+        file_name = f"avatars/user_{current_user.id}{file_ext}"
+        file_data = await file.read()
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        supabase_client.storage.from_(BUCKET_NAME).upload(
+            path=file_name,
+            file=file_data,
+            file_options={"content-type": file.content_type, "upsert": "true"}
+        )
 
-    current_user.avatar_url = f"{settings.BASE_URL}/static/avatars/{file_name}"
-    db.commit()
-    return {"avatar_url": current_user.avatar_url}
+        storage_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{file_name}"
 
+        if hasattr(current_user, 'avatar'):
+            current_user.avatar = storage_url
+        if hasattr(current_user, 'avatar_url'):
+            current_user.avatar_url = storage_url
+
+        db.commit()
+        return {"avatar_url": storage_url}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload profile picture to cloud assets storage: {str(e)}"
+        )
+
+
+class PasswordChangeRequest(BaseModel):
+    current_pw: str
+    new_pw: str
 
 @router.put("/change-password")
 def change_password(
-    current_pw: str,
-    new_pw: str,
+    payload: PasswordChangeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    
-    if not verify_password(current_pw, current_user.hashed_password):
+    if not verify_password(payload.current_pw, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     
-   
-    current_user.hashed_password = hash_password(new_pw)
+    current_user.hashed_password = hash_password(payload.new_pw)
     db.commit()
     return {"message": "Password updated successfully"}
 
@@ -89,12 +112,11 @@ def deactivate_account(
     return {"message": "Account deactivated successfully. For reactivation, please contact support."}
 
 
-
 @router.patch("/socials")
 def update_social_links(
-    instagram: str = None,
-    twitter: str = None,
-    website: str = None,
+    instagram: str = Query(None),
+    twitter: str = Query(None),
+    website: str = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -106,8 +128,8 @@ def update_social_links(
 
 @router.patch("/preferences")
 def update_preferences(
-    language: str = "en",
-    email_notifications: bool = True,
+    language: str = Query("en"),
+    email_notifications: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -126,7 +148,7 @@ def upgrade_to_artist(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role == "artist" or current_user.is_artist:
+    if current_user.role == "artist" or getattr(current_user, 'is_artist', False):
         raise HTTPException(
             status_code=400, 
             detail="You are already registered as an artist."

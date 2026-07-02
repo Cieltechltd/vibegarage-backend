@@ -4,7 +4,7 @@ import segno
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, or_
 from typing import List
 from app.db.database import get_db
 from app.models.user import User
@@ -27,22 +27,26 @@ def find_artist_by_username(username: str, db: Session) -> User:
         
     return artist
 
-@router.post("/artist/{artist_id}/follow")
+@router.post("/artist/{identifier}/follow")
 def follow_or_unfollow_artist(
-    artist_id: str,
+    identifier: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    artist = db.query(User).filter(User.id == artist_id, User.role.ilike("artist")).first()
+    artist = db.query(User).filter(
+        or_(User.id == identifier, User.username.ilike(identifier.strip())),
+        User.role.ilike("artist")
+    ).first()
+
     if not artist:
         raise HTTPException(status_code=404, detail="Artist profile not found")
 
-    if current_user.id == artist_id:
+    if current_user.id == artist.id:
         raise HTTPException(status_code=400, detail="You cannot follow your own profile")
 
     existing_follow = db.query(Follow).filter(
         Follow.user_id == current_user.id,
-        Follow.artist_id == artist_id
+        Follow.artist_id == artist.id
     ).first()
 
     if existing_follow:
@@ -56,7 +60,7 @@ def follow_or_unfollow_artist(
     new_follow = Follow(
         id=str(uuid.uuid4()),
         user_id=current_user.id,
-        artist_id=artist_id
+        artist_id=artist.id
     )
     db.add(new_follow)
     db.commit()
@@ -82,7 +86,7 @@ def get_all_artists_public(
     
     artists_list = []
     for artist in artists:
-        total_plays = db.query(func.count(Play.id)).join(Track).filter(
+        total_plays = db.query(func.count(Play.id)).join(Track, Play.track_id == Track.id).filter(
             Track.artist_id == artist.id
         ).scalar() or 0
        
@@ -94,7 +98,7 @@ def get_all_artists_public(
             "id": str(artist.id),
             "username": artist.username,
             "stage_name": artist.stage_name or artist.username,
-            "avatar": getattr(artist, 'avatar_url', None) or getattr(artist, 'avatar', "https://vibegarage.app/static/default-avatar.png"),
+            "avatar": getattr(artist, 'avatar', None) or getattr(artist, 'avatar_url', None),
             "is_verified": getattr(artist, 'is_verified_artist', False) or getattr(artist, 'is_verified', False),
             "bio": artist.bio or "",
             "stats": {
@@ -120,13 +124,13 @@ def get_artist_profile_or_preview(
 ):
     artist = find_artist_by_username(username, db)
     
-    total_plays = db.query(func.count(Play.id)).join(Track).filter(
+    total_plays = db.query(func.count(Play.id)).join(Track, Play.track_id == Track.id).filter(
         Track.artist_id == artist.id
     ).scalar() or 0
     
     name = artist.stage_name or artist.username
     bio = artist.bio or f"Listen to {name} on Vibe Garage."
-    avatar_url = getattr(artist, 'avatar_url', None) or getattr(artist, 'avatar', "https://vibegarage.app/static/default-avatar.png")
+    avatar_url = getattr(artist, 'avatar', None) or getattr(artist, 'avatar_url', None) or ""
     profile_url = str(request.url)
     accept_header = request.headers.get("accept", "")
     
@@ -185,7 +189,7 @@ def get_artist_profile_or_preview(
 def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
     artist = find_artist_by_username(username, db)
 
-    total_plays = db.query(func.count(Play.id)).join(Track).filter(
+    total_plays = db.query(func.count(Play.id)).join(Track, Play.track_id == Track.id).filter(
         Track.artist_id == artist.id
     ).scalar() or 0
 
@@ -195,7 +199,7 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
         "id": str(artist.id),                         
         "username": artist.username,             
         "stage_name": artist.stage_name or artist.username,
-        "avatar": getattr(artist, 'avatar_url', None) or getattr(artist, 'avatar', "https://vibegarage.app/static/default-avatar.png"),
+        "avatar": getattr(artist, 'avatar', None) or getattr(artist, 'avatar_url', None),
         "is_verified": getattr(artist, 'is_verified_artist', False) or getattr(artist, 'is_verified', False),  
         "bio": artist.bio,
         "joined_date": artist.created_at.strftime("%B %Y") if hasattr(artist, 'created_at') else None,

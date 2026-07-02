@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc
 from fastapi.responses import FileResponse, RedirectResponse
 from supabase import create_client, Client
 from app.core.deps import get_current_user, get_current_user_optional
@@ -19,6 +19,7 @@ from app.models.download import Download
 from app.routers.admin import is_feature_enabled
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
+
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -150,6 +151,7 @@ def stream_track(
         raise HTTPException(status_code=404, detail="Track not found")
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
+    
     current_user = None
     auth_header = request.headers.get("Authorization")
     
@@ -177,13 +179,17 @@ def stream_track(
             ).first()
             if purchase:
                 user_owns_track = True
+    else:
+        user_owns_track = False
 
     audio_path_str = track.audio_path
+    
     if not audio_path_str.startswith("http"):
         base_filename = os.path.basename(audio_path_str)
         audio_path_str = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/audio/{base_filename}"
 
     final_stream_url = audio_path_str
+    
     if getattr(track, 'is_for_sale', False) and not user_owns_track:
         base_filename = os.path.basename(audio_path_str)
         final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
@@ -195,15 +201,15 @@ def stream_track(
     try:
         new_play = Play(
             id=str(uuid.uuid4()),
-            user_id=current_user.id if current_user else None,  
-            track_id=track.id,        
+            user_id=str(current_user.id) if current_user else None,  
+            track_id=str(track.id),        
             is_monetized_stream=is_monetized
         )
         db.add(new_play)
-        db.query(Track).filter(Track.id == track_id).update(
-            {Track.plays: func.coalesce(Track.plays, 0) + 1},
-            synchronize_session=False
-        )
+        
+        if track.plays is None:
+            track.plays = 0
+        track.plays += 1
         
         db.commit()
     except Exception as db_error:
@@ -239,7 +245,11 @@ def download_track(
     db.add(new_download)
     db.commit()
 
-    return RedirectResponse(url=track.audio_path)
+    return FileResponse(
+        path=track.audio_path,
+        media_type="audio/mpeg",
+        filename=f"{track.title}.mp3" 
+    )
 
 
 @router.get("/my", response_model=List[PublicTrackOut])
@@ -260,12 +270,12 @@ def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depe
     existing = db.query(Like).filter(Like.track_id == track_id, Like.user_id == current_user.id).first()
     if existing:
         db.delete(existing)
-        db.query(Track).filter(Track.id == track_id).update({Track.likes: func.coalesce(Track.likes, 1) - 1})
+        db.query(Track).filter(Track.id == track_id).update({Track.likes: Track.likes - 1})
         action = "unliked"
     else:
         like = Like(user_id=current_user.id, track_id=track_id)
         db.add(like)
-        db.query(Track).filter(Track.id == track_id).update({Track.likes: func.coalesce(Track.likes, 0) + 1})
+        db.query(Track).filter(Track.id == track_id).update({Track.likes: Track.likes + 1})
         action = "liked"
 
     db.commit()
