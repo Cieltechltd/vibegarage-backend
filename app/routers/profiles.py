@@ -43,9 +43,8 @@ def follow_or_unfollow_artist(
 
     if current_user.id == artist.id:
         raise HTTPException(status_code=400, detail="You cannot follow your own profile")
-
     existing_follow = db.query(Follow).filter(
-        Follow.user_id == current_user.id,
+        Follow.follower_id == current_user.id,
         Follow.artist_id == artist.id
     ).first()
 
@@ -56,10 +55,8 @@ def follow_or_unfollow_artist(
             "status": "unfollowed", 
             "message": f"You have unfollowed {artist.stage_name or artist.username}"
         }
-
     new_follow = Follow(
-        id=str(uuid.uuid4()),
-        user_id=current_user.id,
+        follower_id=current_user.id,
         artist_id=artist.id
     )
     db.add(new_follow)
