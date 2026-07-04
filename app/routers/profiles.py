@@ -83,7 +83,7 @@ def get_all_artists_public(
     
     artists_list = []
     for artist in artists:
-        total_plays = db.query(func.count(Play.id)).join(Track, Play.track_id == Track.id).filter(
+        total_plays = db.query(func.coalesce(func.sum(Track.plays), 0)).filter(
             Track.artist_id == artist.id
         ).scalar() or 0
        
@@ -121,7 +121,7 @@ def get_artist_profile_or_preview(
 ):
     artist = find_artist_by_username(username, db)
     
-    total_plays = db.query(func.count(Play.id)).join(Track, Play.track_id == Track.id).filter(
+    total_plays = db.query(func.coalesce(func.sum(Track.plays), 0)).filter(
         Track.artist_id == artist.id
     ).scalar() or 0
     
@@ -150,7 +150,8 @@ def get_artist_profile_or_preview(
                     "id": str(t.id),
                     "title": t.title,
                     "cover_art": getattr(t, 'cover_path', getattr(t, 'cover_art', '')),
-                    "duration": getattr(t, 'duration', 0.0)
+                    "duration": getattr(t, 'duration', 0.0),
+                    "plays": getattr(t, 'plays', 0)
                 } for t in tracks
             ]
         }
@@ -186,7 +187,7 @@ def get_artist_profile_or_preview(
 def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
     artist = find_artist_by_username(username, db)
 
-    total_plays = db.query(func.count(Play.id)).join(Track, Play.track_id == Track.id).filter(
+    total_plays = db.query(func.coalesce(func.sum(Track.plays), 0)).filter(
         Track.artist_id == artist.id
     ).scalar() or 0
 
@@ -209,7 +210,8 @@ def get_artist_raw_data(username: str, db: Session = Depends(get_db)):
                 "id": str(t.id),
                 "title": t.title,
                 "cover_art": getattr(t, 'cover_path', getattr(t, 'cover_art', '')),
-                "duration": getattr(t, 'duration', 0.0)
+                "duration": getattr(t, 'duration', 0.0),
+                "plays": getattr(t, 'plays', 0)
             } for t in tracks
         ]
     }

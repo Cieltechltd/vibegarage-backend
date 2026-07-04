@@ -40,6 +40,14 @@ def format_public_track(track: Track, artist_user: User, db: Session, current_us
     artist_name = artist_user.stage_name or artist_user.username if artist_user else "Unknown Artist"
     album_title = track.album.title if (hasattr(track, 'album') and track.album) else "Single"
 
+    
+    release_date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    if hasattr(track, 'created_at') and track.created_at:
+        try:
+            release_date_str = track.created_at.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
     return {
         "id": str(track.id),
         "title": track.title,
@@ -53,7 +61,7 @@ def format_public_track(track: Track, artist_user: User, db: Session, current_us
         "genre": getattr(track, 'genre', "Unknown"),
         "plays": getattr(track, 'plays', 0),
         "likes": getattr(track, 'likes', 0),
-        "releaseDate": datetime.utcnow().strftime("%Y-%m-%d"), 
+        "releaseDate": release_date_str, 
         "isLiked": is_liked,
         "is_for_sale": getattr(track, 'is_for_sale', False),
         "price": float(track.price) if track.price else 0.0

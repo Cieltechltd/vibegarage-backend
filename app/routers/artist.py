@@ -142,6 +142,6 @@ def artist_stats(db: Session = Depends(get_db), current_user = Depends(get_curre
 @router.get("/{artist_id}/follow-status")
 def follow_status(artist_id: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
    
-    is_following = db.query(Follow).filter(Follow.artist_id == artist_id, Follow.user_id == current_user.id).first() is not None
+    is_following = db.query(Follow).filter(Follow.artist_id == artist_id, Follow.follower_id == current_user.id).first() is not None
     followers = db.query(Follow).filter(Follow.artist_id == artist_id).count()
     return {"is_following": is_following, "followers": followers}
