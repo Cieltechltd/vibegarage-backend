@@ -17,6 +17,12 @@ from app.core.config import settings
 from app.db.database import Base 
 from app.db.session import engine
 from app.agent_distro.router import router as distro_router
+from app.services.clip_cleanup import start_clip_expiry_scheduler
+
+try:
+    from app.db.database import SessionLocal
+except ImportError:
+    from app.db.session import SessionLocal
 
 load_dotenv()
 auth_scheme = HTTPBearer()
@@ -35,8 +41,7 @@ def ensure_upload_dirs():
     directories = [
         "app/uploads/avatars",
         "app/uploads/audio",
-        "app/uploads/covers",
-        "app/uploads/clips"
+        "app/uploads/covers"
     ]
     for directory in directories:
         if not os.path.exists(directory):
@@ -51,7 +56,12 @@ async def lifespan(app: FastAPI):
         print("Database and tables initialized successfully on Supabase.")
     except Exception as e:
         print(f"Error initializing database: {e}")
+
+    clip_scheduler = start_clip_expiry_scheduler(SessionLocal)
+
     yield
+
+    clip_scheduler.shutdown()
 
 app = FastAPI(
     title="VibeGarage API",

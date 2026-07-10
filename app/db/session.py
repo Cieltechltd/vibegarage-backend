@@ -1,8 +1,3 @@
-from sqlalchemy.orm import sessionmaker
-from app.db.database import engine
+from app.db.database import engine, SessionLocal
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+__all__ = ["engine", "SessionLocal"]

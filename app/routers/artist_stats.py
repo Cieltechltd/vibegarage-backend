@@ -14,7 +14,7 @@ def get_artist_overview(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.role != "ARTIST":
+    if current_user.role.upper() != "ARTIST":
         raise HTTPException(
             status_code=403, 
             detail="Access denied. Artist role required."

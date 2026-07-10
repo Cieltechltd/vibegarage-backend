@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, logger
+import logging
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from typing import List
@@ -12,6 +13,7 @@ from app.models.lyrics import Lyric
 from app.core.config import settings
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
+logger = logging.getLogger("vibe-garage-discovery")
 
 
 @router.get("/trending")
@@ -83,6 +85,7 @@ def get_garage_feed(db: Session = Depends(get_db), limit: int = 20):
     query_results = (
         db.query(GarageClip, User)
         .join(User, GarageClip.artist_id == User.id)
+        .filter(GarageClip.expires_at > datetime.utcnow())
         .order_by(
             desc(User.is_verified_artist), 
             desc(GarageClip.id)            
@@ -116,3 +119,54 @@ def get_garage_feed(db: Session = Depends(get_db), limit: int = 20):
         "feed": feed_items,
         "count": len(feed_items)
     }
+
+
+@router.get("/editor-picks")
+def get_editor_picks(db: Session = Depends(get_db), limit: int = 10):
+    try:
+        # Get tracks with most plays in the last 30 days
+        time_threshold = datetime.utcnow() - timedelta(days=30)
+        editor_picks_query = (
+            db.query(Track, User, func.count(Play.id).label("recent_plays"))
+            .join(Play, Play.track_id == Track.id)
+            .join(User, Track.artist_id == User.id)
+            .filter(Play.created_at >= time_threshold)
+            .group_by(Track.id, User.id)
+            .order_by(desc("recent_plays"))
+            .limit(limit)
+            .all()
+        )
+
+        editor_picks = [
+            {
+                "plays_count": recent_plays,
+                "track": {
+                    "id": str(track.id),
+                    "title": track.title,
+                    "audio_path": track.audio_path,
+                    "cover_path": track.cover_path,
+                    "genre": track.genre,
+                    "duration": track.duration,
+                    "price": track.price,
+                    "is_for_sale": track.is_for_sale,
+                    "artist": {
+                        "id": str(artist.id),
+                        "username": artist.username,
+                        "stage_name": artist.stage_name or artist.username,
+                        "is_verified": artist.is_verified_artist,
+                        "avatar": getattr(artist, 'avatar', f"{settings.BASE_URL}/static/default-avatar.png")
+                    }
+                }
+            }
+            for track, artist, recent_plays in editor_picks_query
+        ]
+
+        return {
+            "status": "success",
+            "editor_picks": editor_picks,
+            "count": len(editor_picks)
+        }
+
+    except Exception as e:
+        logger.error(f"Editor Picks Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Could not fetch editor picks")

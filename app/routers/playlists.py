@@ -152,6 +152,9 @@ def get_playlist_details(
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
+    if playlist.user_id != current_user.id and not playlist.is_public:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
 
     results = (
         db.query(Track, User)

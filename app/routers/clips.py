@@ -1,19 +1,23 @@
+import os
+import uuid
+import secrets
+from datetime import datetime
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
-import uuid
-import os
-import secrets
-import shutil
-from datetime import datetime
-from app.core.artist_deps import verified_artist_required 
+from supabase import create_client, Client
+from app.core.artist_deps import verified_artist_required
 from app.db.database import get_db
 from app.models.user import User
 from app.models.clip import GarageClip
-from app.core.config import settings 
+from app.core.config import settings
 
 router = APIRouter(prefix="/clips", tags=["Garage Clips"])
 
-UPLOAD_DIR = settings.UPLOAD_CLIP_DIR
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+BUCKET_NAME = "vibegarage"
+
 
 def generate_secure_filename(artist_id: str, original_name: str):
     """Generates a unique filename: artistID_timestamp_random.ext."""
@@ -22,6 +26,7 @@ def generate_secure_filename(artist_id: str, original_name: str):
     random_hex = secrets.token_hex(4)
     return f"{artist_id}_{timestamp}_{random_hex}.{ext}"
 
+
 @router.post("/upload")
 async def upload_garage_clip(
     caption: str = None,
@@ -29,34 +34,32 @@ async def upload_garage_clip(
     current_artist: User = Depends(verified_artist_required),
     db: Session = Depends(get_db)
 ):
-    """
-    Uploads a Garage Clip, exclusively available to Verified Artists 
-    with the Maroon Badge.
-    """
-    
+    if not supabase_client:
+        raise HTTPException(status_code=500, detail="Cloud storage service credentials are not configured.")
+
     if not getattr(current_artist, "is_verified_artist", False):
         raise HTTPException(
-            status_code=403, 
+            status_code=403,
             detail="The Maroon Badge is required to upload Garage Clips. Please verify your account in the Billing section."
         )
 
-    
     if file.content_type not in ["video/mp4", "video/quicktime"]:
         raise HTTPException(status_code=400, detail="Invalid video format. Use MP4 or MOV.")
 
-    
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
     secure_name = generate_secure_filename(current_artist.id, file.filename)
-    file_path = os.path.join(UPLOAD_DIR, secure_name)
+    storage_path = f"clips/{secure_name}"
 
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        file_data = await file.read()
+        supabase_client.storage.from_(BUCKET_NAME).upload(
+            path=storage_path,
+            file=file_data,
+            file_options={"content-type": file.content_type}
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not upload clip: {e}")
 
-
-    video_url = f"{settings.BASE_URL}/static/clips/{secure_name}"
+    video_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{storage_path}"
 
     new_clip = GarageClip(
         id=str(uuid.uuid4()),
@@ -66,9 +69,11 @@ async def upload_garage_clip(
     )
     db.add(new_clip)
     db.commit()
+    db.refresh(new_clip)
 
     return {
-        "message": "Clip uploaded to the Garage!", 
+        "message": "Clip uploaded to the Garage! It will be available for 24 hours.",
         "clip_id": new_clip.id,
-        "url": video_url
+        "url": video_url,
+        "expires_at": new_clip.expires_at
     }

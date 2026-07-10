@@ -8,7 +8,7 @@ class Play(Base):
     __tablename__ = "plays"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
     track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"), nullable=False)
     
     is_monetized_stream = Column(Boolean, default=False)

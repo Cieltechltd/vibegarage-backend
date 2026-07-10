@@ -29,109 +29,118 @@ BUCKET_NAME = "vibegarage"
 async def create_album_with_tracks(
     album_title: str = Form(...),
     album_description: Optional[str] = Form(None),
-    album_cover_image: Optional[str] = Form(None),
+    album_cover_image: UploadFile = File(None),  # Changed from Form(None) to File(None)
     release_date: Optional[str] = Form(None),
     
     track_titles: List[str] = Form(...),
     track_genres: List[str] = Form([]),
     track_durations: List[float] = Form([]),
-    track_prices: List[float] = Form([]),
-    track_is_for_sale: List[bool] = Form([]),
-    
     audio_files: List[UploadFile] = File(...),
+    
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if not supabase_client:
-        raise HTTPException(status_code=500, detail="Cloud storage service credentials are not configured.")
+    if not current_user.role or current_user.role.lower() != "artist":
+        raise HTTPException(status_code=403, detail="Only artists can create albums.")
 
-    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
-        raise HTTPException(status_code=403, detail="Only artists can create albums and upload music.")
+    cover_image_url = None
+    if album_cover_image:
+        try:
+            cover_ext = os.path.splitext(album_cover_image.filename)[1] or ".jpg"
+            cover_filename = f"covers/{uuid.uuid4()}{cover_ext}"
+            cover_data = await album_cover_image.read()
+            
+            supabase_client.storage.from_(BUCKET_NAME).upload(
+                path=cover_filename,
+                file=cover_data,
+                file_options={"content-type": album_cover_image.content_type}
+            )
+            cover_image_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to upload album cover: {str(e)}")
 
-    if len(audio_files) != len(track_titles):
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Mismatch between number of audio files ({len(audio_files)}) and track titles ({len(track_titles)})."
-        )
-
-    album_id = str(uuid.uuid4())
-    album = Album(
-        id=album_id, 
+    new_album = Album(
+        id=str(uuid.uuid4()),
         title=album_title,
         description=album_description,
-        cover_image=album_cover_image,
+        cover_image=cover_image_url,
         artist_id=current_user.id,
         release_date=release_date,
-        is_published=False 
+        is_published=False
     )
-    db.add(album)
+    db.add(new_album)
+    db.flush()
 
-    try:
-        for index, audio in enumerate(audio_files):
-            track_id = str(uuid.uuid4())
-            
-            audio_ext = os.path.splitext(audio.filename)[1] or ".mp3"
-            audio_filename = f"audio/{track_id}{audio_ext}"
-            audio_data = await audio.read()
+    # Process and append track elements...
+    for i, title in enumerate(track_titles):
+        if i >= len(audio_files):
+            break
+        
+        audio_file = audio_files[i]
+        genre = track_genres[i] if i < len(track_genres) else "Unknown"
+        duration = track_durations[i] if i < len(track_durations) else 0.0
+
+        try:
+            audio_ext = os.path.splitext(audio_file.filename)[1] or ".mp3"
+            audio_filename = f"audio/{uuid.uuid4()}{audio_ext}"
+            audio_data = await audio_file.read()
             
             supabase_client.storage.from_(BUCKET_NAME).upload(
                 path=audio_filename,
                 file=audio_data,
-                file_options={"content-type": audio.content_type}
+                file_options={"content-type": audio_file.content_type}
             )
-            audio_path_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{audio_filename}"
-            genre = track_genres[index] if index < len(track_genres) else "Unknown"
-            duration = track_durations[index] if index < len(track_durations) else 0.0
-            price = track_prices[index] if index < len(track_prices) else 0.0
-            is_sale = track_is_for_sale[index] if index < len(track_is_for_sale) else False
+            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{audio_filename}"
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to upload track '{title}': {str(e)}")
 
-            track = Track(
-                id=track_id, 
-                title=track_titles[index],
-                audio_path=audio_path_url,
-                album_id=album_id,
-                cover_path=album_cover_image,  
-                artist_id=current_user.id,
-                price=price, 
-                is_for_sale=is_sale,
-                genre=genre,
-                duration=duration
-            )
-            db.add(track)
-
-        db.commit()
-        db.refresh(album)
-        return album
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create album or upload music batch assets: {str(e)}"
+        new_track = Track(
+            id=str(uuid.uuid4()),
+            title=title,
+            genre=genre,
+            duration=duration,
+            audio_path=audio_url,
+            cover_path=cover_image_url,
+            artist_id=current_user.id,
+            album_id=new_album.id,
+            is_for_sale=False,
+            price=0.0
         )
+        db.add(new_track)
+
+    db.commit()
+    db.refresh(new_album)
+
+    return {
+        "id": str(new_album.id),
+        "album_id": str(new_album.id),
+        "title": new_album.title,
+        "description": new_album.description,
+        "cover_image": new_album.cover_image,
+        "artist_id": str(new_album.artist_id),
+        "release_date": new_album.release_date,
+        "is_published": new_album.is_published
+    }
 
 
-@router.post("/", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
-async def create_album_draft_form(
+@router.post("/create-empty", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
+async def create_empty_album(
     title: str = Form(...),
     description: Optional[str] = Form(None),
+    cover_image: UploadFile = File(None),  # Changed from Form(None) to File(None)
     release_date: Optional[str] = Form(None),
-    cover_image: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
-        raise HTTPException(status_code=403, detail="Only artists can create albums")
+    if not current_user.role or current_user.role.lower() != "artist":
+        raise HTTPException(status_code=403, detail="Only artists can create albums.")
 
-    album_id = str(uuid.uuid4())
-    cover_url = None
-
+    cover_image_url = None
     if cover_image:
-        if not supabase_client:
-            raise HTTPException(status_code=500, detail="Cloud storage service credentials are not configured.")
         try:
             cover_ext = os.path.splitext(cover_image.filename)[1] or ".jpg"
-            cover_filename = f"covers/{album_id}{cover_ext}"
+            cover_filename = f"covers/{uuid.uuid4()}{cover_ext}"
             cover_data = await cover_image.read()
             
             supabase_client.storage.from_(BUCKET_NAME).upload(
@@ -139,95 +148,46 @@ async def create_album_draft_form(
                 file=cover_data,
                 file_options={"content-type": cover_image.content_type}
             )
-            cover_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
+            cover_image_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to upload album cover: {str(e)}")
 
-    album = Album(
-        id=album_id, 
+    new_album = Album(
+        id=str(uuid.uuid4()),
         title=title,
         description=description,
-        cover_image=cover_url,
+        cover_image=cover_image_url,
         artist_id=current_user.id,
         release_date=release_date,
-        is_published=False 
+        is_published=False
     )
-
-    db.add(album)
+    db.add(new_album)
     db.commit()
-    db.refresh(album)
+    db.refresh(new_album)
 
     return {
-        "id": str(album.id),
-        "title": album.title,
-        "description": album.description,
-        "cover_image": album.cover_image,
-        "artist_id": str(album.artist_id),
-        "release_date": album.release_date,
-        "is_published": False
+        "id": str(new_album.id),
+        "album_id": str(new_album.id),
+        "title": new_album.title,
+        "description": new_album.description,
+        "cover_image": new_album.cover_image,
+        "artist_id": str(new_album.artist_id),
+        "release_date": new_album.release_date,
+        "is_published": new_album.is_published
     }
-
-
-@router.get("/my", response_model=List[AlbumOut])
-def get_my_albums(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
-        raise HTTPException(status_code=403, detail="Not an artist")
-
-    albums = db.query(Album).filter(Album.artist_id == current_user.id).all()
-
-    return [
-        {
-            "id": str(a.id),
-            "album_id": str(a.id),
-            "title": a.title,
-            "description": a.description,
-            "cover_image": a.cover_image,
-            "artist_id": str(a.artist_id),
-            "release_date": a.release_date,
-            "is_published": getattr(a, 'is_published', False)
-        } for a in albums
-    ]
-
-
-@router.get("/drafts", response_model=List[Dict[str, Any]])
-def get_my_album_drafts(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
-        raise HTTPException(status_code=403, detail="Only artists can view album drafts.")
-
-    drafts = db.query(Album).filter(
-        Album.artist_id == current_user.id,
-        (Album.is_published == False) | (Album.is_published == None)
-    ).all()
-    return [
-        {
-            "id": str(a.id),
-            "album_id": str(a.id),
-            "title": a.title,
-            "description": a.description,
-            "cover_image": a.cover_image,
-            "artist_id": str(a.artist_id),
-            "release_date": a.release_date,
-            "is_published": False
-        } for a in drafts
-    ]
 
 
 @router.put("/{album_id}/tracks", status_code=status.HTTP_200_OK)
 def add_tracks_to_album(
     album_id: str,
-    track_ids: List[str] = Form(...),
+    track_ids: List[str] = Form(...),  # Enforces a repeating list form-data field in Swagger UI
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     album = db.query(Album).filter(Album.id == album_id, Album.artist_id == current_user.id).first()
     if not album:
         raise HTTPException(status_code=404, detail="Album not found or unauthorized.")
+
     parsed_track_ids = []
     for track in track_ids:
         if "," in track:
@@ -246,6 +206,33 @@ def add_tracks_to_album(
         "status": "success",
         "message": f"Successfully linked {updated_count} tracks to the album '{album.title}'."
     }
+
+
+@router.get("/drafts", response_model=List[Dict[str, Any]])
+def get_my_album_drafts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not getattr(current_user, 'is_artist', False) and current_user.role.lower() != "artist":
+        raise HTTPException(status_code=403, detail="Only artists can view album drafts.")
+
+    drafts = db.query(Album).filter(
+        Album.artist_id == current_user.id,
+        (Album.is_published == False) | (Album.is_published == None)
+    ).all()
+
+    return [
+        {
+            "id": str(a.id),
+            "album_id": str(a.id),
+            "title": a.title,
+            "description": a.description,
+            "cover_image": a.cover_image,
+            "artist_id": str(a.artist_id),
+            "release_date": a.release_date,
+            "is_published": False
+        } for a in drafts
+    ]
 
 
 @router.get("/{album_id}", response_model=AlbumOut)
@@ -295,10 +282,18 @@ def publish_album(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    album = db.query(Album).filter(Album.id == album_id, Album.artist_id == current_user.id).first()
+    album = db.query(Album).filter(
+        Album.id == album_id,
+        Album.artist_id == current_user.id
+    ).first()
+
     if not album:
-        raise HTTPException(status_code=404, detail="Album not found")
-    
+        raise HTTPException(status_code=404, detail="Album not found or unauthorized.")
+
     album.is_published = True
     db.commit()
-    return {"message": "Album published successfully"}
+
+    return {
+        "status": "success",
+        "message": f"Album '{album.title}' has been successfully published."
+    }

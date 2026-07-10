@@ -41,7 +41,7 @@ def get_recently_played(
         db.query(Track)
         .join(Play, Play.track_id == Track.id)
         .filter(Play.user_id == current_user.id)
-        .order_by(desc(Play.id)) 
+        .order_by(desc(Play.created_at))
         .limit(20)
         .all()
     )

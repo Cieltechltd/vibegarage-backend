@@ -43,6 +43,7 @@ def follow_or_unfollow_artist(
 
     if current_user.id == artist.id:
         raise HTTPException(status_code=400, detail="You cannot follow your own profile")
+
     existing_follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
         Follow.artist_id == artist.id
@@ -55,6 +56,7 @@ def follow_or_unfollow_artist(
             "status": "unfollowed", 
             "message": f"You have unfollowed {artist.stage_name or artist.username}"
         }
+
     new_follow = Follow(
         follower_id=current_user.id,
         artist_id=artist.id
@@ -66,6 +68,32 @@ def follow_or_unfollow_artist(
         "status": "followed", 
         "message": f"You are now following {artist.stage_name or artist.username}"
     }
+
+
+@router.get("/artist/{identifier}/follow-status")
+def check_if_artist_followed(
+    identifier: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # """
+    # Checks if the currently logged-in user follows an artist.
+    # Accepts both artist user ID or username as the identifier.
+    # """
+    artist = db.query(User).filter(
+        or_(User.id == identifier, User.username.ilike(identifier.strip())),
+        User.role.ilike("artist")
+    ).first()
+
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist profile not found")
+
+    is_following = db.query(Follow).filter(
+        Follow.follower_id == current_user.id,
+        Follow.artist_id == artist.id
+    ).first() is not None
+
+    return {"isfollowed": is_following}
 
 
 @router.get("/all")

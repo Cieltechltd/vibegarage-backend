@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -8,6 +9,9 @@ from app.services.recommender import RecommenderService
 from app.schemas.track import TrackPublic
 
 router = APIRouter(prefix="/daily-mix", tags=["Listener Discovery"])
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+BUCKET_NAME = "vibegarage"
 
 @router.get("/")
 def get_daily_mix(
@@ -22,14 +26,24 @@ def get_daily_mix(
             Library.track_id == track.id
         ).first() is not None
 
+        if current_user.id == track.artist_id:
+            is_owned = True
+
+        show_preview = getattr(track, 'is_for_sale', False) and not is_owned
+
+        audio_url = track.audio_path
+        if show_preview:
+            base_filename = os.path.basename(track.audio_path)
+            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
+
         response_data.append({
             "id": track.id,
             "title": track.title,
             "artist": track.artist.stage_name,
             "is_verified": track.artist.is_verified_artist, # Maroon Badge
-            "audio_url": track.file_url if is_owned else track.preview_url,
-            "is_preview": not is_owned,
-            "cover_image": track.cover_image,
+            "audio_url": audio_url,
+            "is_preview": show_preview,
+            "cover_image": track.cover_path,
             "genre": track.genre
         })
 

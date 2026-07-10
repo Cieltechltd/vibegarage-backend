@@ -4,10 +4,10 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from fastapi.responses import FileResponse, RedirectResponse
 from supabase import create_client, Client
-from app.core.deps import get_current_user, get_current_user_optional
+from app.core.deps import get_current_user
 from app.db.deps import get_db
 from app.models.track import Track
 from app.schemas.track import PublicTrackOut
@@ -214,11 +214,10 @@ def stream_track(
             is_monetized_stream=is_monetized
         )
         db.add(new_play)
-        
-        if track.plays is None:
-            track.plays = 0
-        track.plays += 1
-        
+        db.query(Track).filter(Track.id == track_id).update(
+            {Track.plays: func.coalesce(Track.plays, 0) + 1}
+        )
+
         db.commit()
     except Exception as db_error:
         db.rollback()

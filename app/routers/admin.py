@@ -74,7 +74,7 @@ def get_dashboard_metrics(
 ):
     """Provides a high-level snapshot of platform health."""
     total_users = db.query(func.count(User.id)).scalar()
-    artists_count = db.query(func.count(User.id)).filter(User.role == "ARTIST").scalar()
+    artists_count = db.query(func.count(User.id)).filter(User.role.ilike("artist")).scalar()
     total_tracks = db.query(func.count(Track.id)).scalar()
     total_plays = db.query(func.count(Play.id)).scalar()
     last_week = datetime.utcnow() - timedelta(days=7)
@@ -136,10 +136,17 @@ def change_user_role(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    user.role = new_role
+
+    normalized_role = new_role.strip().lower()
+    if normalized_role not in ("listener", "artist", "admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid role. Must be one of: listener, artist, admin."
+        )
+
+    user.role = normalized_role
     db.commit()
-    return {"message": f"User role updated to {new_role}"}
+    return {"message": f"User role updated to {normalized_role}"}
 
 @router.post("/users/{user_id}/suspend")
 def suspend_user(

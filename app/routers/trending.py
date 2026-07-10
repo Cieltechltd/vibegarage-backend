@@ -43,7 +43,7 @@ def get_landing_page_data(db: Session = Depends(get_db), limit: int = 10):
     trending_artists = (
         db.query(User, func.count(Follow.id).label("follower_gain"))
         .join(Follow, Follow.artist_id == User.id)
-        .filter(User.role == "artist")
+        .filter(User.role.ilike("artist"))
         .group_by(User.id)
         .order_by(desc("follower_gain"))
         .limit(5)

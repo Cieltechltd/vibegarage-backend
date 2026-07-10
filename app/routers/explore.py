@@ -117,7 +117,7 @@ def get_rising_stars(db: Session = Depends(get_db), limit: int = 10):
     stars = (
         db.query(User, func.count(Follow.id).label("follower_count"))
         .join(Follow, Follow.artist_id == User.id)
-        .filter(User.is_verified_artist == False, User.role == "artist")
+        .filter(User.is_verified_artist == False, User.role.ilike("artist"))
         .group_by(User.id)
         .order_by(desc("follower_count"))
         .limit(limit).all()

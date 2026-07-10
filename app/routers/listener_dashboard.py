@@ -110,8 +110,8 @@ def listening_history(
                 "track": TrackPublic(
                     id=play.track.id,
                     title=play.track.title,
-                    play_count=play.track.play_count,
-                    like_count=play.track.like_count,
+                    play_count=getattr(play.track, 'plays', 0),
+                    like_count=getattr(play.track, 'likes', 0),
                     artist=ArtistPublic(
                         id=play.track.artist.id,
                         stage_name=play.track.artist.stage_name
@@ -148,15 +148,14 @@ def recommendations(
             TrackPublic(
                 id=track.id,
                 title=track.title,
-                play_count=track.play_count,
-                like_count=track.like_count,
+                play_count=getattr(track, 'plays', 0),
+                like_count=getattr(track, 'likes', 0),
                 artist=ArtistPublic(id=track.artist.id, stage_name=track.artist.stage_name)
             ) for track in tracks
         ]
     }
 
 @router.get("/profile")
-# @router.get("/details") 
 def view_listener_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
