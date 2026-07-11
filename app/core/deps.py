@@ -8,6 +8,7 @@ from app.core.config import settings
 from typing import Optional
 
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 def get_current_user(
     db: Session = Depends(get_db), 
@@ -39,7 +40,7 @@ def get_current_user(
 
 def get_current_user_optional(
     db: Session = Depends(get_db),
-    token: Optional[HTTPAuthorizationCredentials] = Depends(security, use_cache=True)
+    token: Optional[HTTPAuthorizationCredentials] = Depends(security_optional, use_cache=True)
 ) -> Optional[User]:
     if not token or not token.credentials:
         return None

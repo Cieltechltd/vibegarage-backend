@@ -15,10 +15,13 @@ from app.core.config import settings
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
 logger = logging.getLogger("vibe-garage-discovery")
 
+TRENDING_WINDOW_DAYS = 10
+EDITOR_PICKS_WINDOW_DAYS = 30
+
 
 @router.get("/trending")
 def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
-    time_threshold = datetime.utcnow() - timedelta(days=10)
+    time_threshold = datetime.utcnow() - timedelta(days=TRENDING_WINDOW_DAYS)
 
     trending_query = (
         db.query(Track, User, func.count(Play.id).label("recent_plays"))
@@ -124,8 +127,7 @@ def get_garage_feed(db: Session = Depends(get_db), limit: int = 20):
 @router.get("/editor-picks")
 def get_editor_picks(db: Session = Depends(get_db), limit: int = 10):
     try:
-        # Get tracks with most plays in the last 30 days
-        time_threshold = datetime.utcnow() - timedelta(days=30)
+        time_threshold = datetime.utcnow() - timedelta(days=EDITOR_PICKS_WINDOW_DAYS)
         editor_picks_query = (
             db.query(Track, User, func.count(Play.id).label("recent_plays"))
             .join(Play, Play.track_id == Track.id)

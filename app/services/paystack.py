@@ -21,7 +21,7 @@ def initialize_payment(email: str, amount: float, track_id: str, reference: str)
     response = requests.post(url, json=payload, headers=headers)
     return response.json()
 
-def verify_payment(self, reference: str):
+def verify_payment(reference: str):
     """Verifies a transaction using the reference returned by Paystack."""
     url = f"{PAYSTACK_BASE_URL}/transaction/verify/{reference}"
     headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}

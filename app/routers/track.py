@@ -1,13 +1,14 @@
 import uuid
 import os
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from supabase import create_client, Client
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_user_optional
 from app.db.deps import get_db
 from app.models.track import Track
 from app.schemas.track import PublicTrackOut
@@ -19,6 +20,7 @@ from app.models.download import Download
 from app.routers.admin import is_feature_enabled
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
+logger = logging.getLogger("vibe-garage-tracks")
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -147,28 +149,28 @@ async def upload_track(
         )
 
 
-@router.get("/stream/{track_id}")
+@router.api_route("/stream/{track_id}", methods=["GET", "POST"])
 def stream_track(
-    track_id: str, 
+    track_id: str,
     request: Request,
     ad_viewed: bool = Query(False),
     db: Session = Depends(get_db)
 ):
+    
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
-    
+
     current_user = None
     auth_header = request.headers.get("Authorization")
-    
     if auth_header and auth_header.startswith("Bearer "):
         try:
             token = auth_header.split(" ")[1]
             from jose import jwt
             from app.core.config import settings
-            
+
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
             user_id: str = payload.get("sub")
             if user_id:
@@ -187,20 +189,34 @@ def stream_track(
             ).first()
             if purchase:
                 user_owns_track = True
-    else:
-        user_owns_track = False
 
     audio_path_str = track.audio_path
-    
     if not audio_path_str.startswith("http"):
         base_filename = os.path.basename(audio_path_str)
         audio_path_str = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/audio/{base_filename}"
 
     final_stream_url = audio_path_str
-    
+    is_preview = False
     if getattr(track, 'is_for_sale', False) and not user_owns_track:
         base_filename = os.path.basename(audio_path_str)
         final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
+        is_preview = True
+
+    if request.method == "GET":
+        return {"stream_url": final_stream_url, "is_preview": is_preview}
+
+    if current_user:
+        recent_play = (
+            db.query(Play)
+            .filter(
+                Play.user_id == current_user.id,
+                Play.track_id == track_id,
+                Play.created_at >= datetime.utcnow() - timedelta(seconds=90)
+            )
+            .first()
+        )
+        if recent_play:
+            return {"status": "duplicate_ignored", "plays": track.plays}
 
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
@@ -209,8 +225,8 @@ def stream_track(
     try:
         new_play = Play(
             id=str(uuid.uuid4()),
-            user_id=str(current_user.id) if current_user else None,  
-            track_id=str(track.id),        
+            user_id=str(current_user.id) if current_user else None,
+            track_id=str(track.id),
             is_monetized_stream=is_monetized
         )
         db.add(new_play)
@@ -221,9 +237,11 @@ def stream_track(
         db.commit()
     except Exception as db_error:
         db.rollback()
-        print(f"!!! CRITICAL DATABASE ERROR ENCOUNTERED DURING TRACK STREAM: {str(db_error)}")
+        logger.error(f"Failed to register play for track {track_id}: {db_error}")
+        raise HTTPException(status_code=500, detail="Could not register play.")
 
-    return RedirectResponse(url=final_stream_url)
+    db.refresh(track)
+    return {"status": "counted", "plays": track.plays, "is_preview": is_preview}
 
 
 @router.get("/download/{track_id}")

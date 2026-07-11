@@ -14,10 +14,12 @@ from app.schemas.artist import ArtistPublic
 
 router = APIRouter(prefix="/trending", tags=["Trending"])
 
+TRENDING_WINDOW_DAYS = 10
+
 @router.get("/landing-page")
 def get_landing_page_data(db: Session = Depends(get_db), limit: int = 10):
    
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    trending_window_start = datetime.utcnow() - timedelta(days=TRENDING_WINDOW_DAYS)
 
     
     verified_carousel = (
@@ -32,7 +34,7 @@ def get_landing_page_data(db: Session = Depends(get_db), limit: int = 10):
     trending_tracks_results = (
         db.query(Track, func.count(Play.id).label("play_count"))
         .join(Play, Play.track_id == Track.id)
-        .filter(Play.created_at >= seven_days_ago)
+        .filter(Play.created_at >= trending_window_start)
         .group_by(Track.id)
         .order_by(desc("play_count"))
         .limit(limit)

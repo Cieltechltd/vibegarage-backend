@@ -56,28 +56,69 @@ def global_search(
     q: str = Query(..., min_length=1),
     db: Session = Depends(get_db)
 ):
+   
+    search_ts_query = func.plainto_tsquery('english', q)
+
+    track_text = func.to_tsvector(
+        'english',
+        func.concat(func.coalesce(Track.title, ''), ' ', func.coalesce(User.stage_name, ''))
+    )
     track_results = (
         db.query(Track)
         .join(User, Track.artist_id == User.id)
-        .filter(or_(Track.title.ilike(f"%{q}%"), User.stage_name.ilike(f"%{q}%")))
-        .limit(10).all()
+        .filter(track_text.op('@@')(search_ts_query))
+        .order_by(desc(func.ts_rank(track_text, search_ts_query)))
+        .limit(10)
+        .all()
     )
+    if not track_results:
+        track_results = (
+            db.query(Track)
+            .join(User, Track.artist_id == User.id)
+            .filter(or_(Track.title.ilike(f"%{q}%"), User.stage_name.ilike(f"%{q}%")))
+            .limit(10).all()
+        )
 
+    artist_text = func.to_tsvector(
+        'english',
+        func.concat(func.coalesce(User.stage_name, ''), ' ', func.coalesce(User.username, ''))
+    )
     artist_results = (
         db.query(User)
-        .filter(
-            User.role == "artist", 
-            or_(User.stage_name.ilike(f"%{q}%"), User.username.ilike(f"%{q}%"))
-        )
-        .limit(10).all()
+        .filter(User.role.ilike("artist"), artist_text.op('@@')(search_ts_query))
+        .order_by(desc(func.ts_rank(artist_text, search_ts_query)))
+        .limit(10)
+        .all()
     )
+    if not artist_results:
+        artist_results = (
+            db.query(User)
+            .filter(
+                User.role.ilike("artist"),
+                or_(User.stage_name.ilike(f"%{q}%"), User.username.ilike(f"%{q}%"))
+            )
+            .limit(10).all()
+        )
 
+    clip_text = func.to_tsvector(
+        'english',
+        func.concat(func.coalesce(GarageClip.caption, ''), ' ', func.coalesce(User.stage_name, ''))
+    )
     clip_results = (
         db.query(GarageClip)
         .join(User, GarageClip.artist_id == User.id)
-        .filter(or_(GarageClip.caption.ilike(f"%{q}%"), User.stage_name.ilike(f"%{q}%")))
-        .limit(10).all()
+        .filter(clip_text.op('@@')(search_ts_query))
+        .order_by(desc(func.ts_rank(clip_text, search_ts_query)))
+        .limit(10)
+        .all()
     )
+    if not clip_results:
+        clip_results = (
+            db.query(GarageClip)
+            .join(User, GarageClip.artist_id == User.id)
+            .filter(or_(GarageClip.caption.ilike(f"%{q}%"), User.stage_name.ilike(f"%{q}%")))
+            .limit(10).all()
+        )
 
     return {
         "query": q,

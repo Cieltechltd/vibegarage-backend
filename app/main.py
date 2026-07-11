@@ -18,6 +18,7 @@ from app.db.database import Base
 from app.db.session import engine
 from app.agent_distro.router import router as distro_router
 from app.services.clip_cleanup import start_clip_expiry_scheduler
+from app.services.subscription_cleanup import start_subscription_expiry_scheduler
 
 try:
     from app.db.database import SessionLocal
@@ -58,10 +59,12 @@ async def lifespan(app: FastAPI):
         print(f"Error initializing database: {e}")
 
     clip_scheduler = start_clip_expiry_scheduler(SessionLocal)
+    subscription_scheduler = start_subscription_expiry_scheduler(SessionLocal)
 
     yield
 
     clip_scheduler.shutdown()
+    subscription_scheduler.shutdown()
 
 app = FastAPI(
     title="VibeGarage API",
