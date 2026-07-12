@@ -30,7 +30,8 @@ auth_scheme = HTTPBearer()
 
 origins = [
     "http://localhost:5173",
-    "http://localhost:5174",    
+    "http://localhost:5174",  
+    "http://localhost:5175",
     "https://vibegarage.app",   
     "https://www.vibegarage.app",
     "https://vibegarage.netlify.app",

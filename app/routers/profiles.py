@@ -76,10 +76,7 @@ def check_if_artist_followed(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # """
-    # Checks if the currently logged-in user follows an artist.
-    # Accepts both artist user ID or username as the identifier.
-    # """
+   
     artist = db.query(User).filter(
         or_(User.id == identifier, User.username.ilike(identifier.strip())),
         User.role.ilike("artist")
