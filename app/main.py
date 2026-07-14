@@ -80,7 +80,8 @@ app.add_middleware(
     allow_origins=origins,            
     allow_credentials=True,
     allow_methods=["*"],              
-    allow_headers=["*"],              
+    allow_headers=["*"],
+    expose_headers=["X-2FA-Required", "X-2FA-Setup-Required"],
 )
 app.mount("/static", StaticFiles(directory="app/uploads"), name="static")
 
