@@ -308,6 +308,18 @@ def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depe
     return {"status": action, "likes": track.likes}
 
 
+@router.get("/public/latest", response_model=List[PublicTrackOut])
+def latest_tracks(db: Session = Depends(get_db)):
+    results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.id)).limit(20).all()
+    return [format_public_track(t, u, db, current_user=None) for t, u in results]
+
+
+@router.get("/public/trending", response_model=List[PublicTrackOut])
+def trending_tracks(db: Session = Depends(get_db)):
+    results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.plays)).limit(20).all()
+    return [format_public_track(t, u, db, current_user=None) for t, u in results]
+
+
 @router.get("/public/{track_id}", response_model=PublicTrackOut)
 def get_public_track_by_id(
     track_id: str,
@@ -341,15 +353,3 @@ def get_public_track_by_id(
             current_user = None
 
     return format_public_track(track, artist_user, db, current_user)
-
-
-@router.get("/public/latest", response_model=List[PublicTrackOut])
-def latest_tracks(db: Session = Depends(get_db)):
-    results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.id)).limit(20).all()
-    return [format_public_track(t, u, db, current_user=None) for t, u in results]
-
-
-@router.get("/public/trending", response_model=List[PublicTrackOut])
-def trending_tracks(db: Session = Depends(get_db)):
-    results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.plays)).limit(20).all()
-    return [format_public_track(t, u, db, current_user=None) for t, u in results]

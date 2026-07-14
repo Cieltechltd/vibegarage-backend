@@ -1,8 +1,9 @@
 import shutil
+import logging
 from pydantic import BaseModel
 from sqlalchemy import or_, func, desc, text
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.db.deps import get_db
 from app.core.admin_deps import get_current_admin
@@ -20,14 +21,23 @@ from app.schemas.user import UserResponse
 from app.schemas.payout import PayoutResponse
 from app.schemas.audit import AuditLogResponse
 from app.services.audit import log_admin_action
+from app.services.clip_cleanup import _storage_path_from_url, supabase_client as clip_supabase_client, BUCKET_NAME as CLIP_BUCKET_NAME
+from app.services.email_broadcast import send_broadcast_email
 
 router = APIRouter(prefix="/admin", tags=["Super Admin"])
+logger = logging.getLogger("vibe-garage-admin")
 
 
 class GlobalSettingsUpdate(BaseModel):
     maintenance_mode: bool | None = None
     disable_signups: bool | None = None
     disable_uploads: bool | None = None
+
+
+class BroadcastEmailRequest(BaseModel):
+    subject: str
+    html_body: str
+    target: str = "all"  # "all" | "artists" | "listeners"
 
 
 PLATFORM_CONFIG = {
@@ -182,6 +192,15 @@ def reactivate_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     user.is_active = True
+
+    log_admin_action(
+        db,
+        admin_id=admin.id,
+        action="REACTIVATE_USER",
+        target_id=user_id,
+        details={"email": user.email}
+    )
+
     db.commit()
     return {"message": f"User {user.email} has been reactivated."}
 
@@ -225,7 +244,14 @@ def delete_clip_as_admin(clip_id: str, db: Session = Depends(get_db), admin: Use
     clip = db.query(GarageClip).filter(GarageClip.id == clip_id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
-    
+
+    storage_path = _storage_path_from_url(clip.video_url) if clip.video_url else None
+    if storage_path and clip_supabase_client:
+        try:
+            clip_supabase_client.storage.from_(CLIP_BUCKET_NAME).remove([storage_path])
+        except Exception as e:
+            logger.error(f"Failed to delete storage file for clip {clip_id} during admin deletion: {e}")
+
     log_admin_action(db, admin_id=admin.id, action="DELETE_CLIP", target_id=clip_id, details={"artist_id": clip.artist_id})
     db.delete(clip)
     db.commit()
@@ -310,3 +336,45 @@ def is_feature_enabled(db: Session, key: str) -> bool:
     """Check if a specific platform feature is disabled via the database."""
     setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
     return setting.value if setting else False
+
+
+@router.post("/broadcast-email")
+def broadcast_email(
+    payload: BroadcastEmailRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    
+    query = db.query(User.email).filter(User.is_active == True)
+
+    if payload.target == "artists":
+        query = query.filter(User.role.ilike("artist"))
+    elif payload.target == "listeners":
+        query = query.filter(User.role.ilike("listener"))
+    elif payload.target != "all":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid target. Must be one of: all, artists, listeners."
+        )
+
+    recipient_emails = [row[0] for row in query.all() if row[0]]
+
+    if not recipient_emails:
+        raise HTTPException(status_code=400, detail="No matching recipients found.")
+
+    background_tasks.add_task(send_broadcast_email, payload.subject, payload.html_body, recipient_emails)
+
+    log_admin_action(
+        db,
+        admin_id=admin.id,
+        action="BROADCAST_EMAIL",
+        target_id=payload.target,
+        details={"subject": payload.subject, "recipient_count": len(recipient_emails)}
+    )
+    db.commit()
+
+    return {
+        "message": f"Broadcast queued for {len(recipient_emails)} recipient(s).",
+        "recipient_count": len(recipient_emails)
+    }

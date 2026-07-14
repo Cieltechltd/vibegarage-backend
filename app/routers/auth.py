@@ -78,7 +78,11 @@ def signup(user: UserCreate, background_tasks: BackgroundTasks, db: Session = De
     return new_user
 
 @router.post("/login", response_model=TokenResponse)
-def login(data: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    data: LoginRequest,
+    x_2fa_code: Optional[str] = Header(None, alias="X-2FA-Code"),
+    db: Session = Depends(get_db)
+):
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
@@ -91,6 +95,18 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             status_code=403, 
             detail="Account inactive. Please verify your email."
         )
+
+    
+    if user.role.lower() == "admin" and getattr(user, "two_factor_enabled", False):
+        if not x_2fa_code:
+            raise HTTPException(
+                status_code=401,
+                detail="2FA code required for admin login.",
+                headers={"X-2FA-Required": "true"}
+            )
+        totp = pyotp.TOTP(user.two_factor_secret)
+        if not totp.verify(x_2fa_code):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code")
     
     if user.role == "ARTIST":
         check_and_update_eligibility(user.id, db)

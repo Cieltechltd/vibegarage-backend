@@ -7,24 +7,26 @@ import os
 MASTER_ADMIN = os.getenv("MASTER_ADMIN_EMAIL")
 
 def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
-    """
-    Verifies if the user is an admin.
-    Checks the 'role' column or if the email matches the MASTER_ADMIN_EMAIL in .env.
-    """
     
-    if current_user.role == "admin" or current_user.email == MASTER_ADMIN:
-        return current_user
-    
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Admin access only."
-    )
+    is_admin = current_user.role == "admin" or current_user.email == MASTER_ADMIN
+
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access only."
+        )
+
+    if not getattr(current_user, "two_factor_enabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="2FA is required for admin accounts. Complete setup at /auth/2fa/setup and /auth/2fa/enable before continuing.",
+            headers={"X-2FA-Setup-Required": "true"}
+        )
+
+    return current_user
 
 def get_current_moderator(current_user: User = Depends(get_current_user)) -> User:
-    """
-    Verifies if the user is a Moderator or an Admin.
-    Note: Case-sensitivity should match how you store roles (e.g., 'admin' vs 'ADMIN').
-    """
+    
     
     if current_user.role.lower() not in ["admin", "moderator"]:
         raise HTTPException(
