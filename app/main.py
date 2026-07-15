@@ -9,7 +9,7 @@ from app.routers import (
     auth, artist, billing, track, 
     listener_dashboard, trending, 
     album, admin, lyrics, clips, payouts, library, discovery, explore, playlists,
-    daily_mix, account, profiles
+    daily_mix, account, profiles, blog
 )
 from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +32,7 @@ origins = [
     "http://localhost:5173",
     "http://localhost:5174",  
     "http://localhost:5175",
+    "http://localhost:5176",  
     "https://vibegarage.app",   
     "https://www.vibegarage.app",
     "https://vibegarage.netlify.app",
@@ -77,7 +78,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,            
+    allow_origins=origins,
+    allow_origin_regex=r"https://([a-zA-Z0-9-]+\.)?vibegarage\.app",
     allow_credentials=True,
     allow_methods=["*"],              
     allow_headers=["*"],
@@ -104,6 +106,7 @@ app.include_router(lyrics.router)
 app.include_router(clips.router)
 app.include_router(billing.router)
 app.include_router(payouts.router)
+app.include_router(blog.router)
 app.include_router(distro_router, prefix="/distro", tags=["Agent Distribution"])
 
 @app.get("/")

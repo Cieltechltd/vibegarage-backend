@@ -21,6 +21,12 @@ from app.models.like import Like
 from app.models.follow import Follow
 from app.models.album import Album
 from app.models.payment import ArtistPaymentSettings
+from app.models.purchase import Purchase
+from app.models.download import Download
+from app.models.clip import GarageClip
+from app.models.playlist import Playlist, PlaylistTrack 
+from app.models.blog import BlogPost
+
 
 
 
