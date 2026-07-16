@@ -25,110 +25,78 @@ supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE
 BUCKET_NAME = "vibegarage"
 
 
-@router.post("/create-with-tracks", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
-async def create_album_with_tracks(
-    album_title: str = Form(...),
-    album_description: Optional[str] = Form(None),
-    album_cover_image: UploadFile = File(None),  # Changed from Form(None) to File(None)
-    release_date: Optional[str] = Form(None),
-    
-    track_titles: List[str] = Form(...),
-    track_genres: List[str] = Form([]),
-    track_durations: List[float] = Form([]),
-    audio_files: List[UploadFile] = File(...),
-    
+@router.post("/{album_id}/tracks", status_code=status.HTTP_201_CREATED)
+async def upload_track_to_album(
+    album_id: str,
+    title: str = Form(...),
+    genre: str = Form("Unknown"),
+    price: float = Form(0.0),
+    audio_file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    
     if not current_user.role or current_user.role.lower() != "artist":
-        raise HTTPException(status_code=403, detail="Only artists can create albums.")
+        raise HTTPException(status_code=403, detail="Only artists can upload tracks.")
 
-    cover_image_url = None
-    if album_cover_image:
-        try:
-            cover_ext = os.path.splitext(album_cover_image.filename)[1] or ".jpg"
-            cover_filename = f"covers/{uuid.uuid4()}{cover_ext}"
-            cover_data = await album_cover_image.read()
-            
-            supabase_client.storage.from_(BUCKET_NAME).upload(
-                path=cover_filename,
-                file=cover_data,
-                file_options={"content-type": album_cover_image.content_type}
-            )
-            cover_image_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to upload album cover: {str(e)}")
+    
+    album = db.query(Album).filter(Album.id == album_id, Album.artist_id == current_user.id).first()
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found or unauthorized.")
 
-    new_album = Album(
-        id=str(uuid.uuid4()),
-        title=album_title,
-        description=album_description,
-        cover_image=cover_image_url,
-        artist_id=current_user.id,
-        release_date=release_date,
-        is_published=False
-    )
-    db.add(new_album)
-    db.flush()
-
-    # Process and append track elements...
-    for i, title in enumerate(track_titles):
-        if i >= len(audio_files):
-            break
+    
+    try:
+        audio_ext = os.path.splitext(audio_file.filename)[1] or ".mp3"
+        audio_filename = f"audio/{uuid.uuid4()}{audio_ext}"
+        audio_data = await audio_file.read()
         
-        audio_file = audio_files[i]
-        genre = track_genres[i] if i < len(track_genres) else "Unknown"
-        duration = track_durations[i] if i < len(track_durations) else 0.0
-
-        try:
-            audio_ext = os.path.splitext(audio_file.filename)[1] or ".mp3"
-            audio_filename = f"audio/{uuid.uuid4()}{audio_ext}"
-            audio_data = await audio_file.read()
-            
-            supabase_client.storage.from_(BUCKET_NAME).upload(
-                path=audio_filename,
-                file=audio_data,
-                file_options={"content-type": audio_file.content_type}
-            )
-            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{audio_filename}"
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to upload track '{title}': {str(e)}")
-
-        new_track = Track(
-            id=str(uuid.uuid4()),
-            title=title,
-            genre=genre,
-            duration=duration,
-            audio_path=audio_url,
-            cover_path=cover_image_url,
-            artist_id=current_user.id,
-            album_id=new_album.id,
-            is_for_sale=False,
-            price=0.0
+        supabase_client.storage.from_(BUCKET_NAME).upload(
+            path=audio_filename,
+            file=audio_data,
+            file_options={"content-type": audio_file.content_type}
         )
-        db.add(new_track)
+        audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{audio_filename}"
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload audio file: {str(e)}")
 
+    
+    new_track = Track(
+        id=str(uuid.uuid4()),
+        title=title,
+        genre=genre,
+        duration=0.0,  
+        audio_path=audio_url,
+        cover_path=album.cover_image,  
+        artist_id=current_user.id,
+        album_id=album.id,
+        is_for_sale=price > 0.0,
+        price=price
+    )
+    
+    db.add(new_track)
     db.commit()
-    db.refresh(new_album)
+    db.refresh(new_track)
 
     return {
-        "id": str(new_album.id),
-        "album_id": str(new_album.id),
-        "title": new_album.title,
-        "description": new_album.description,
-        "cover_image": new_album.cover_image,
-        "artist_id": str(new_album.artist_id),
-        "release_date": new_album.release_date,
-        "is_published": new_album.is_published
+        "status": "success",
+        "message": f"Track '{title}' successfully added to album '{album.title}'.",
+        "track": {
+            "id": new_track.id,
+            "title": new_track.title,
+            "genre": new_track.genre,
+            "audio_path": new_track.audio_path,
+            "cover_path": new_track.cover_path,
+            "price": new_track.price,
+            "is_for_sale": new_track.is_for_sale,
+            "album_id": new_track.album_id
+        }
     }
-
 
 @router.post("/create-empty", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
 async def create_empty_album(
     title: str = Form(...),
     description: Optional[str] = Form(None),
-    cover_image: UploadFile = File(None),  # Changed from Form(None) to File(None)
+    cover_image: UploadFile = File(None),  
     release_date: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -180,7 +148,7 @@ async def create_empty_album(
 @router.put("/{album_id}/tracks", status_code=status.HTTP_200_OK)
 def add_tracks_to_album(
     album_id: str,
-    track_ids: List[str] = Form(...),  # Enforces a repeating list form-data field in Swagger UI
+    track_ids: List[str] = Form(...),  
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

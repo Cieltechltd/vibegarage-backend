@@ -1,12 +1,12 @@
 from pydantic import BaseModel
-from typing import List, Optional
-
+from typing import Optional
+from datetime import datetime  
 
 class AlbumBase(BaseModel):
     title: str
     description: Optional[str] = None
     cover_image: Optional[str] = None
-    release_date: Optional[str] = None
+    release_date: Optional[datetime] = None 
 
 
 class AlbumCreate(AlbumBase):

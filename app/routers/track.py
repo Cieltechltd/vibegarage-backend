@@ -149,7 +149,7 @@ async def upload_track(
         )
 
 
-@router.api_route("/stream/{track_id}", methods=["GET", "POST"])
+@router.post("/stream/{track_id}")
 def stream_track(
     track_id: str,
     request: Request,
@@ -202,9 +202,7 @@ def stream_track(
         final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
         is_preview = True
 
-    if request.method == "GET":
-        return {"stream_url": final_stream_url, "is_preview": is_preview}
-
+    
     if current_user:
         recent_play = (
             db.query(Play)
@@ -216,7 +214,12 @@ def stream_track(
             .first()
         )
         if recent_play:
-            return {"status": "duplicate_ignored", "plays": track.plays}
+            return {
+                "stream_url": final_stream_url,
+                "is_preview": is_preview,
+                "status": "duplicate_ignored",
+                "plays": track.plays
+            }
 
     is_monetized = False
     if ad_viewed and artist and getattr(artist, 'monetization_eligible', False):
@@ -241,7 +244,12 @@ def stream_track(
         raise HTTPException(status_code=500, detail="Could not register play.")
 
     db.refresh(track)
-    return {"status": "counted", "plays": track.plays, "is_preview": is_preview}
+    return {
+        "stream_url": final_stream_url,
+        "is_preview": is_preview,
+        "status": "counted",
+        "plays": track.plays
+    }
 
 
 @router.get("/download/{track_id}")
