@@ -26,6 +26,7 @@ from app.models.download import Download
 from app.models.clip import GarageClip
 from app.models.playlist import Playlist, PlaylistTrack 
 from app.models.blog import BlogPost
+from app.models.fanlink import Fanlink
 
 
 
