@@ -8,11 +8,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user
+from app.db.database import get_db
 from app.models.user import User
 from app.models.track import Track
 from app.models.transaction import Transaction, TransactionType
 from app.models.purchase import Purchase
+from app.models.fanlink import FanLink
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,6 +30,7 @@ if not PAYSTACK_SECRET_KEY:
     raise RuntimeError("Paystack credentials missing from environment variables.")
 
 HTTP_TIMEOUT_SECONDS = 15.0
+
 
 VERIFICATION_PLANS = {
     "monthly":   {"label": "Monthly",               "amount_ngn": 7000,  "duration_days": 30},
@@ -50,7 +53,7 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
 
 
 def _grant_or_extend_verification(db: Session, user: User, plan_key: str, paid_amount_kobo) -> bool:
-    
+   
     plan_info = VERIFICATION_PLANS.get(plan_key)
     if not plan_info:
         return False
@@ -274,5 +277,25 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                         f"webhook artist_verification rejected for user {user_id}: "
                         f"plan={plan_key} paid_amount={paid_amount} did not match expected plan pricing."
                     )
+
+        elif payment_type == "tip":
+            artist_id = metadata.get("artist_id")
+            fanlink_slug = metadata.get("fanlink_slug")
+            used_subaccount = metadata.get("used_subaccount") == "true"
+
+            artist = db.query(User).filter(User.id == artist_id).first()
+            if not artist:
+                logger.warning(f"Tip webhook could not find artist {artist_id} for fanlink {fanlink_slug}")
+            else:
+                tip_amount_ngn = paid_amount / 100 
+
+                if not used_subaccount:
+                    artist.balance_ngn = (artist.balance_ngn or 0) + tip_amount_ngn
+                    db.commit()
+
+                logger.info(
+                    f"Tip of NGN {tip_amount_ngn} for artist {artist_id} via fanlink "
+                    f"{fanlink_slug} (subaccount_split={used_subaccount})"
+                )
 
     return {"status": "success"}

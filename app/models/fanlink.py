@@ -1,27 +1,24 @@
-# app/models/fanlink.py
-from sqlalchemy import Column, String, Boolean, Float, ForeignKey, JSON
-from sqlalchemy.dialects.postgresql import UUID  
+import uuid
+from sqlalchemy import Column, String, Boolean, ForeignKey, JSON, DateTime
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.database import Base
-import uuid
 
-class Fanlink(Base):
-    __tablename__ = "fanlinks"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    slug = Column(String, unique=True, nullable=False, index=True)
-    
-    track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE"), nullable=True)
-    album_id = Column(UUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=True)
-    artist_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+class FanLink(Base):
+    __tablename__ = "fan_links"
 
-    streaming_links = Column(JSON, nullable=True, default=dict)
-    is_tipping_enabled = Column(Boolean, default=False)
-    paystack_subaccount_code = Column(String, nullable=True)
+    id = Column(String, primary_key=True, index=True)
+    slug = Column(String, unique=True, index=True, nullable=False)
+    track_id = Column(UUID(as_uuid=True), ForeignKey("tracks.id"), nullable=False)
+    artist_id = Column(String, ForeignKey("users.id"), nullable=False)
+    streaming_links = Column(JSON, default=dict)
 
-    vibe_gate_type = Column(String, nullable=True)
-    vibe_gate_value = Column(String, nullable=True)
-    views_count = Column(Float, default=0.0)
+    accept_tips = Column(Boolean, default=False)
+    subaccount_id = Column(String, nullable=True)
 
-    track = relationship("Track", backref="fanlink")
-    album = relationship("Album", backref="fanlink")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    track = relationship("Track")
+    artist = relationship("User")

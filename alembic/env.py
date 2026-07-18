@@ -26,9 +26,37 @@ from app.models.download import Download
 from app.models.clip import GarageClip
 from app.models.playlist import Playlist, PlaylistTrack 
 from app.models.blog import BlogPost
-from app.models.fanlink import Fanlink
+from app.models.fanlink import FanLink
+
+# --- Newly added imports to prevent unwanted drop table generation ---
+try:
+    from app.models.lyrics import Lyric
+except ImportError:
+    pass
+
+try:
+    from app.models.transaction import Transaction
+except ImportError:
+    pass
+
+try:
+    from app.models.payout import PayoutRequest
+except ImportError:
+    pass
 
 
+try:
+    from app.models.system import SystemSetting
+except ImportError:
+    pass
+
+try:
+    from app.models.audit import AuditLog
+except ImportError:
+    pass
+
+
+# ---------------------------------------------------------------------
 
 
 target_metadata = Base.metadata
