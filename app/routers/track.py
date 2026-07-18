@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from supabase import create_client, Client
 from app.core.deps import get_current_user, get_current_user_optional
 from app.db.deps import get_db
@@ -202,7 +202,6 @@ def stream_track(
         final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
         is_preview = True
 
-    
     if current_user:
         recent_play = (
             db.query(Play)
@@ -233,6 +232,7 @@ def stream_track(
             is_monetized_stream=is_monetized
         )
         db.add(new_play)
+
         db.query(Track).filter(Track.id == track_id).update(
             {Track.plays: func.coalesce(Track.plays, 0) + 1}
         )
@@ -278,11 +278,7 @@ def download_track(
     db.add(new_download)
     db.commit()
 
-    return FileResponse(
-        path=track.audio_path,
-        media_type="audio/mpeg",
-        filename=f"{track.title}.mp3" 
-    )
+    return RedirectResponse(url=track.audio_path)
 
 
 @router.get("/my", response_model=List[PublicTrackOut])
