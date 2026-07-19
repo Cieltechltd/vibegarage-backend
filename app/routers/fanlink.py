@@ -1,8 +1,10 @@
 import uuid
 import re
+import os
 import logging
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.deps import get_current_user
@@ -94,6 +96,7 @@ def get_fanlink_public(slug: str, db: Session = Depends(get_db)):
         artist_username=artist.username if artist else "",
         streaming_links=fanlink.streaming_links or {},
         is_tipping_enabled=fanlink.accept_tips,
+        subaccount_id=fanlink.subaccount_id,
         track=FanLinkTrackOut(
             id=str(track.id),
             title=track.title,
@@ -105,8 +108,8 @@ def get_fanlink_public(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/public/{slug}/download")
-def download_fanlink_track(slug: str, db: Session = Depends(get_db)):
-    
+async def download_fanlink_track(slug: str, db: Session = Depends(get_db)):
+   
     fanlink = db.query(FanLink).filter(FanLink.slug == slug).first()
     if not fanlink:
         raise HTTPException(status_code=404, detail="FanLink not found")
@@ -118,4 +121,33 @@ def download_fanlink_track(slug: str, db: Session = Depends(get_db)):
     if getattr(track, 'is_for_sale', False):
         raise HTTPException(status_code=403, detail="This track is not available for free download.")
 
-    return RedirectResponse(url=track.audio_path)
+    safe_title = re.sub(r'[^\w\s-]', '', track.title).strip() or "track"
+    ext = os.path.splitext(track.audio_path)[1] or ".mp3"
+    filename = f"{safe_title}{ext}"
+
+    client = httpx.AsyncClient(timeout=60.0)
+    try:
+        upstream_request = client.build_request("GET", track.audio_path)
+        upstream_response = await client.send(upstream_request, stream=True)
+    except Exception:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="Could not reach the audio file storage.")
+
+    if upstream_response.status_code != 200:
+        await upstream_response.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="Audio file could not be retrieved.")
+
+    async def stream_and_cleanup():
+        try:
+            async for chunk in upstream_response.aiter_bytes(chunk_size=65536):
+                yield chunk
+        finally:
+            await upstream_response.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream_and_cleanup(),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
