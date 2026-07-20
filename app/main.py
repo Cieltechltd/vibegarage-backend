@@ -36,8 +36,8 @@ origins = [
     "https://vibegarage.app",   
     "https://www.vibegarage.app",
     "https://vibegarage.netlify.app",
-    "https://fanl.netlify.app/",
-    "https://fan.vibegarage.app"
+    "https://fanl.netlify.app",       
+    "https://fan.vibegarage.app",
 ]
 
 
@@ -75,7 +75,8 @@ app = FastAPI(
     description="API for VibeGarage music streaming service",
     version="1.0.0",
     swagger_ui_parameters={"persistAuthorization": True},
-    lifespan=lifespan 
+    lifespan=lifespan,
+    strict_slashes=False 
 )
 
 app.add_middleware(

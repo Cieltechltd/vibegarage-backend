@@ -6,14 +6,15 @@ from app.services.monetization import calculate_artist_earnings
 import uuid
 
 def get_available_balance(user_id: str, db: Session) -> float:
-    """
-    Calculates the actual spendable balance: 
-    Total Earnings - (Completed Payouts + Pending Payouts)
-    """
-
-    gross_earnings = calculate_artist_earnings(user_id, db)
-
     
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return 0.0
+
+    streaming_earnings = calculate_artist_earnings(user_id, db)
+    flexible_balance = user.balance_ngn or 0.0
+    gross_earnings = streaming_earnings + flexible_balance
+
     locked_funds = (
         db.query(func.sum(PayoutRequest.amount))
         .filter(
@@ -32,7 +33,7 @@ def create_payout_request(user_id: str, amount: float, db: Session):
     available_balance = get_available_balance(user_id, db)
     
     if amount > available_balance:
-        return None, f"Insufficient funds. Your available balance is {available_balance} V-Coins."
+        return None, f"Insufficient funds. Your available balance is NGN {available_balance:,.2f}."
 
     # Create the request
     request = PayoutRequest(

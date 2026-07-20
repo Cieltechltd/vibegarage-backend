@@ -28,3 +28,39 @@ def verify_payment(reference: str):
     
     response = requests.get(url, headers=headers)
     return response.json()
+
+
+def create_transfer_recipient(name: str, account_number: str, bank_code: str) -> dict:
+    
+    url = f"{PAYSTACK_BASE_URL}/transferrecipient"
+    headers = {
+        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "type": "nuban",
+        "name": name,
+        "account_number": account_number,
+        "bank_code": bank_code,
+        "currency": "NGN"
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    return response.json()
+
+
+def initiate_transfer(amount_ngn: float, recipient_code: str, reason: str, reference: str) -> dict:
+    
+    url = f"{PAYSTACK_BASE_URL}/transfer"
+    headers = {
+        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "source": "balance",
+        "amount": int(round(amount_ngn * 100)),
+        "recipient": recipient_code,
+        "reason": reason,
+        "reference": reference
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    return response.json()

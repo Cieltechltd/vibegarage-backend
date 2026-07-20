@@ -15,6 +15,7 @@ class ArtistPaymentSettings(Base):
     bank_code = Column(String, nullable=True) 
     account_number = Column(String, nullable=True)
     account_name = Column(String, nullable=True)
+    paystack_recipient_code = Column(String, nullable=True)
     
     # International Details
     paypal_email = Column(String, nullable=True)
