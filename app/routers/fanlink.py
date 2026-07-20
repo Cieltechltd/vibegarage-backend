@@ -16,6 +16,9 @@ from app.schemas.fanlink import FanLinkCreate, FanLinkOut, FanLinkPublicOut, Fan
 router = APIRouter(prefix="/fanlinks", tags=["FanLinks"])
 logger = logging.getLogger("vibe-garage-fanlinks")
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+BUCKET_NAME = "vibegarage"
+
 
 def _clean_slug(raw: str) -> str:
     return re.sub(r"[^a-z0-9-_]", "", raw.lower())
@@ -121,19 +124,34 @@ async def download_fanlink_track(slug: str, db: Session = Depends(get_db)):
     if getattr(track, 'is_for_sale', False):
         raise HTTPException(status_code=403, detail="This track is not available for free download.")
 
+    if not track.audio_path:
+        logger.error(f"FanLink '{slug}' (track {track.id}) has no audio_path set at all.")
+        raise HTTPException(status_code=500, detail="This track has no audio file on record.")
+
+ 
+    audio_url = track.audio_path
+    if not audio_url.startswith("http"):
+        base_filename = os.path.basename(audio_url)
+        audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/audio/{base_filename}"
+
     safe_title = re.sub(r'[^\w\s-]', '', track.title).strip() or "track"
-    ext = os.path.splitext(track.audio_path)[1] or ".mp3"
+    ext = os.path.splitext(audio_url)[1] or ".mp3"
     filename = f"{safe_title}{ext}"
 
     client = httpx.AsyncClient(timeout=60.0)
     try:
-        upstream_request = client.build_request("GET", track.audio_path)
+        upstream_request = client.build_request("GET", audio_url)
         upstream_response = await client.send(upstream_request, stream=True)
-    except Exception:
+    except Exception as e:
         await client.aclose()
+        logger.error(f"FanLink '{slug}' download failed reaching '{audio_url}': {e}")
         raise HTTPException(status_code=502, detail="Could not reach the audio file storage.")
 
     if upstream_response.status_code != 200:
+        logger.error(
+            f"FanLink '{slug}' download got status {upstream_response.status_code} "
+            f"fetching '{audio_url}'"
+        )
         await upstream_response.aclose()
         await client.aclose()
         raise HTTPException(status_code=502, detail="Audio file could not be retrieved.")
