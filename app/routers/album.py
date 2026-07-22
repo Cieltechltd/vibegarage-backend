@@ -92,6 +92,41 @@ async def upload_track_to_album(
         }
     }
 
+
+@router.get("/{album_id}/tracks", status_code=status.HTTP_200_OK)
+def get_album_tracks(
+    album_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    album = db.query(Album).filter(
+        Album.id == album_id, 
+        Album.artist_id == current_user.id
+    ).first()
+
+    if not album:
+        raise HTTPException(
+            status_code=404, 
+            detail="Album not found or unauthorized."
+        )
+
+    tracks = db.query(Track).filter(Track.album_id == album_id).all()
+
+    return [
+        {
+            "id": str(track.id),
+            "title": track.title,
+            "genre": track.genre,
+            "duration": track.duration,
+            "audio_path": track.audio_path,
+            "cover_path": track.cover_path,
+            "price": track.price,
+            "is_for_sale": track.is_for_sale,
+            "album_id": str(track.album_id)
+        } for track in tracks
+    ]
+
+
 @router.post("/create-empty", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
 async def create_empty_album(
     title: str = Form(...),
