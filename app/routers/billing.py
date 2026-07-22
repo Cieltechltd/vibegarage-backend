@@ -14,7 +14,7 @@ from app.models.user import User
 from app.models.track import Track
 from app.models.transaction import Transaction, TransactionType
 from app.models.purchase import Purchase
-from app.models.fanlink import FanLink
+from app.services.revenue import apply_platform_fee_and_credit
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -263,6 +263,16 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                         transaction_ref=reference
                     )
                     db.add(new_purchase)
+
+                    artist = db.query(User).filter(User.id == track.artist_id).first()
+                    if artist:
+                        sale_amount_ngn = paid_amount / 100
+                        apply_platform_fee_and_credit(
+                            db, artist, sale_amount_ngn, source="track_sale", reference=reference
+                        )
+                    else:
+                        logger.warning(f"Track sale {reference}: could not find artist {track.artist_id} to credit.")
+
                     db.commit()
 
         elif payment_type == "artist_verification":
@@ -281,21 +291,15 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
         elif payment_type == "tip":
             artist_id = metadata.get("artist_id")
             fanlink_slug = metadata.get("fanlink_slug")
-            used_subaccount = metadata.get("used_subaccount") == "true"
 
             artist = db.query(User).filter(User.id == artist_id).first()
             if not artist:
                 logger.warning(f"Tip webhook could not find artist {artist_id} for fanlink {fanlink_slug}")
             else:
-                tip_amount_ngn = paid_amount / 100 
-
-                if not used_subaccount:
-                    artist.balance_ngn = (artist.balance_ngn or 0) + tip_amount_ngn
-                    db.commit()
-
-                logger.info(
-                    f"Tip of NGN {tip_amount_ngn} for artist {artist_id} via fanlink "
-                    f"{fanlink_slug} (subaccount_split={used_subaccount})"
+                tip_amount_ngn = paid_amount / 100  
+                apply_platform_fee_and_credit(
+                    db, artist, tip_amount_ngn, source="tip", reference=reference
                 )
+                db.commit()
 
     return {"status": "success"}

@@ -133,6 +133,7 @@ async def create_empty_album(
     db.commit()
     db.refresh(new_album)
 
+    
     return {
         "id": str(new_album.id),
         "album_id": str(new_album.id),
@@ -140,7 +141,7 @@ async def create_empty_album(
         "description": new_album.description,
         "cover_image": new_album.cover_image,
         "artist_id": str(new_album.artist_id),
-        "release_date": new_album.release_date,
+        "release_date": str(new_album.release_date) if new_album.release_date else None,
         "is_published": new_album.is_published
     }
 
