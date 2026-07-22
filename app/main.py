@@ -9,7 +9,7 @@ from app.routers import (
     auth, artist, billing, track, 
     listener_dashboard, trending, 
     album, admin, lyrics, clips, payouts, library, discovery, explore, playlists,
-    daily_mix, account, profiles, blog, fanlink
+    daily_mix, account, profiles, blog, fanlink, earnings
 )
 from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
@@ -98,6 +98,7 @@ app.include_router(discovery.router)
 app.include_router(explore.router)
 app.include_router(profiles.router)
 app.include_router(artist.router)
+app.include_router(earnings.router)
 app.include_router(track.router)
 app.include_router(listener_dashboard.router)
 app.include_router(album.router)

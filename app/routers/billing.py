@@ -14,6 +14,7 @@ from app.models.user import User
 from app.models.track import Track
 from app.models.transaction import Transaction, TransactionType
 from app.models.purchase import Purchase
+from app.models.fanlink import FanLink
 from app.services.revenue import apply_platform_fee_and_credit
 from dotenv import load_dotenv
 
@@ -53,7 +54,7 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
 
 
 def _grant_or_extend_verification(db: Session, user: User, plan_key: str, paid_amount_kobo) -> bool:
-   
+    
     plan_info = VERIFICATION_PLANS.get(plan_key)
     if not plan_info:
         return False
@@ -243,6 +244,7 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
 
             existing = db.query(Purchase).filter(Purchase.transaction_ref == reference).first()
             if not existing:
+                
                 track = db.query(Track).filter(Track.id == track_id).first()
                 expected_amount = int(track.price * 100) if track else None
 
@@ -268,7 +270,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                     if artist:
                         sale_amount_ngn = paid_amount / 100
                         apply_platform_fee_and_credit(
-                            db, artist, sale_amount_ngn, source="track_sale", reference=reference
+                            db, artist, sale_amount_ngn, source="track_sale",
+                            reference=reference, track_id=track_id
                         )
                     else:
                         logger.warning(f"Track sale {reference}: could not find artist {track.artist_id} to credit.")
@@ -297,8 +300,12 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 logger.warning(f"Tip webhook could not find artist {artist_id} for fanlink {fanlink_slug}")
             else:
                 tip_amount_ngn = paid_amount / 100  
+                fanlink = db.query(FanLink).filter(FanLink.slug == fanlink_slug).first()
+                tip_track_id = str(fanlink.track_id) if fanlink else None
+
                 apply_platform_fee_and_credit(
-                    db, artist, tip_amount_ngn, source="tip", reference=reference
+                    db, artist, tip_amount_ngn, source="tip",
+                    reference=reference, track_id=tip_track_id
                 )
                 db.commit()
 
