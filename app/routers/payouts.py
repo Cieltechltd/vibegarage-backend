@@ -40,9 +40,10 @@ def save_payment_settings(
         )
 
     
-    if settings_in.bank_account_name:
+    account_name = getattr(settings_in, 'account_name', None) or getattr(settings_in, 'bank_account_name', None)
+    if account_name:
         registered_name = getattr(current_user, 'full_name', "").lower()
-        if settings_in.bank_account_name.lower() != registered_name:
+        if account_name.lower() != registered_name:
             raise HTTPException(
                 status_code=400, 
                 detail="Bank account name must match your registered legal full name."
