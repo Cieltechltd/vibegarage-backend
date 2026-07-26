@@ -1,5 +1,7 @@
+import os
 import logging
 import pyotp
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -20,6 +22,9 @@ logging.basicConfig(
 logger = logging.getLogger("vibe-garage-payouts")
 
 router = APIRouter(prefix="/payouts", tags=["Artist Payouts & Wallet"])
+
+# Paystack Secret Key from Environment Variables
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
 
 @router.post("/settings", response_model=ArtistPaymentSettingsResponse)
 def save_payment_settings(
@@ -112,3 +117,36 @@ def request_withdrawal(
 
     logger.info(f"Payout of {data.amount} successfully requested by user {current_user.id}")
     return payout
+
+@router.get("/banks")
+async def get_banks_from_paystack(
+    country: str = "nigeria",
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Fetch live list of supported banks directly from Paystack API.
+    """
+    headers = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+    url = f"https://api.paystack.co/bank?country={country}"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, headers=headers)
+            res_data = response.json()
+            
+            if response.status_code == 200 and res_data.get("status"):
+                return {"status": True, "data": res_data.get("data")}
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=res_data.get("message", "Failed to fetch banks from Paystack")
+                )
+        except httpx.RequestError as exc:
+            logger.error(f"HTTP request to Paystack failed: {exc}")
+            raise HTTPException(
+                status_code=502, 
+                detail="Unable to reach payment gateway service."
+            )

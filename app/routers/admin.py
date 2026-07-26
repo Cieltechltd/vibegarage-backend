@@ -31,6 +31,7 @@ from app.services.audit import log_admin_action
 from app.services.clip_cleanup import _storage_path_from_url, supabase_client as clip_supabase_client, BUCKET_NAME as CLIP_BUCKET_NAME
 from app.services.email_broadcast import send_broadcast_email
 from app.services.paystack import create_transfer_recipient, initiate_transfer
+from app.services.revenue import get_earnings_summary
 
 router = APIRouter(prefix="/admin", tags=["Super Admin"])
 logger = logging.getLogger("vibe-garage-admin")
@@ -297,7 +298,7 @@ def delete_clip_as_admin(clip_id: str, db: Session = Depends(get_db), admin: Use
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
-    
+   
     storage_path = _storage_path_from_url(clip.video_url) if clip.video_url else None
     if storage_path and clip_supabase_client:
         try:
@@ -318,7 +319,7 @@ def list_pending_payouts(db: Session = Depends(get_db), admin: User = Depends(ge
 
 @router.post("/payouts/{payout_id}/approve")
 def approve_payout(payout_id: str, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
-   
+    
     payout = db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
     if not payout or payout.status != PayoutStatus.PENDING:
         raise HTTPException(status_code=400, detail="Invalid payout request")
@@ -339,7 +340,7 @@ def approve_payout(payout_id: str, db: Session = Depends(get_db), admin: User = 
             detail="This artist's bank details are incomplete (missing bank code, account number, or account name)."
         )
 
-
+   
     recipient_code = settings_row.paystack_recipient_code
     if not recipient_code:
         recipient_response = create_transfer_recipient(
@@ -384,6 +385,7 @@ def approve_payout(payout_id: str, db: Session = Depends(get_db), admin: User = 
         return {"message": "Payout approved and transfer completed.", "transfer_reference": transfer_reference}
 
     if transfer_status == "otp":
+        
         logger.warning(
             f"Payout {payout_id} transfer requires OTP finalization in the Paystack "
             f"dashboard (reference {transfer_reference})."
@@ -635,12 +637,7 @@ async def upload_blog_image(
     file: UploadFile = File(...),
     admin: User = Depends(get_current_admin)
 ):
-    """
-    Uploads an image (cover image or one embedded inline in the rich text
-    body) to Supabase storage and returns its public URL. The admin console
-    calls this both for the cover-image picker and for the rich text
-    editor's "insert image" button.
-    """
+    
     if not blog_supabase_client:
         raise HTTPException(status_code=500, detail="Cloud storage service credentials are not configured.")
 
@@ -661,3 +658,26 @@ async def upload_blog_image(
         return {"url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
+
+
+@router.get("/users/{user_id}/earnings")
+def get_artist_earnings_admin(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if target.role.lower() != "artist":
+        raise HTTPException(status_code=400, detail="This user is not an artist.")
+
+    summary = get_earnings_summary(user_id, db)
+    summary["artist"] = {
+        "id": target.id,
+        "email": target.email,
+        "stage_name": target.stage_name or target.username
+    }
+    return summary
