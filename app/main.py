@@ -38,6 +38,7 @@ origins = [
     "https://vibegarage.netlify.app",
     "https://fanl.netlify.app",       
     "https://fan.vibegarage.app",
+    "https://vibegaragefanlink.netlify.app/",
 ]
 
 
