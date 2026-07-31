@@ -1,7 +1,5 @@
-import os
 import logging
 import pyotp
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -13,6 +11,7 @@ from app.schemas.payout import PayoutRequestCreate, PayoutResponse
 from app.schemas.payment import ArtistPaymentSettingsCreate, ArtistPaymentSettingsResponse
 from app.services.wallet import create_payout_request
 from app.services.notifications import send_payout_notification
+from app.services.paystack import list_banks
 from app.core.security import generate_vg_id 
 
 logging.basicConfig(
@@ -23,8 +22,14 @@ logger = logging.getLogger("vibe-garage-payouts")
 
 router = APIRouter(prefix="/payouts", tags=["Artist Payouts & Wallet"])
 
-# Paystack Secret Key from Environment Variables
-PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
+@router.get("/banks")
+def get_bank_list(current_user: User = Depends(get_current_user)):
+    data = list_banks()
+    if not data.get("status"):
+        raise HTTPException(status_code=502, detail="Could not fetch bank list from Paystack.")
+
+    banks = [{"name": b["name"], "code": b["code"]} for b in data.get("data", [])]
+    return {"banks": banks}
 
 @router.post("/settings", response_model=ArtistPaymentSettingsResponse)
 def save_payment_settings(
@@ -45,10 +50,9 @@ def save_payment_settings(
         )
 
     
-    account_name = getattr(settings_in, 'account_name', None) or getattr(settings_in, 'bank_account_name', None)
-    if account_name:
+    if settings_in.bank_account_name:
         registered_name = getattr(current_user, 'full_name', "").lower()
-        if account_name.lower() != registered_name:
+        if settings_in.bank_account_name.lower() != registered_name:
             raise HTTPException(
                 status_code=400, 
                 detail="Bank account name must match your registered legal full name."
@@ -117,36 +121,3 @@ def request_withdrawal(
 
     logger.info(f"Payout of {data.amount} successfully requested by user {current_user.id}")
     return payout
-
-@router.get("/banks")
-async def get_banks_from_paystack(
-    country: str = "nigeria",
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Fetch live list of supported banks directly from Paystack API.
-    """
-    headers = {
-        "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
-        "Content-Type": "application/json"
-    }
-    url = f"https://api.paystack.co/bank?country={country}"
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers)
-            res_data = response.json()
-            
-            if response.status_code == 200 and res_data.get("status"):
-                return {"status": True, "data": res_data.get("data")}
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=res_data.get("message", "Failed to fetch banks from Paystack")
-                )
-        except httpx.RequestError as exc:
-            logger.error(f"HTTP request to Paystack failed: {exc}")
-            raise HTTPException(
-                status_code=502, 
-                detail="Unable to reach payment gateway service."
-            )

@@ -22,7 +22,6 @@ def initialize_payment(email: str, amount: float, track_id: str, reference: str)
     return response.json()
 
 def verify_payment(reference: str):
-    """Verifies a transaction using the reference returned by Paystack."""
     url = f"{PAYSTACK_BASE_URL}/transaction/verify/{reference}"
     headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
     
@@ -30,8 +29,7 @@ def verify_payment(reference: str):
     return response.json()
 
 
-def create_transfer_recipient(name: str, account_number: str, bank_code: str) -> dict:
-    
+def create_transfer_recipient(name: str, account_number: str, bank_code: str) -> dict: 
     url = f"{PAYSTACK_BASE_URL}/transferrecipient"
     headers = {
         "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
@@ -49,7 +47,6 @@ def create_transfer_recipient(name: str, account_number: str, bank_code: str) ->
 
 
 def initiate_transfer(amount_ngn: float, recipient_code: str, reason: str, reference: str) -> dict:
-    
     url = f"{PAYSTACK_BASE_URL}/transfer"
     headers = {
         "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
@@ -63,4 +60,12 @@ def initiate_transfer(amount_ngn: float, recipient_code: str, reason: str, refer
         "reference": reference
     }
     response = requests.post(url, json=payload, headers=headers)
+    return response.json()
+
+
+def list_banks(currency: str = "NGN") -> dict:
+    url = f"{PAYSTACK_BASE_URL}/bank"
+    headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
+    params = {"currency": currency}
+    response = requests.get(url, headers=headers, params=params)
     return response.json()
