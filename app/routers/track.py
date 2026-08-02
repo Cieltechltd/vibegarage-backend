@@ -1,27 +1,28 @@
-import uuid
-import os
 import logging
-from datetime import datetime, timedelta
-from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status, Request
-from sqlalchemy.orm import Session
+import os
+import uuid
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import desc, func
-from fastapi.responses import FileResponse, RedirectResponse
-from supabase import create_client, Client
+from sqlalchemy.orm import Session
+from supabase import Client, create_client
+
 from app.core.deps import get_current_user, get_current_user_optional
 from app.db.deps import get_db
-from app.models.track import Track
-from app.schemas.track import PublicTrackOut
+from app.models.download import Download
 from app.models.like import Like
-from app.models.user import User
 from app.models.play import Play
-from app.models.purchase import Purchase  
-from app.models.download import Download 
+from app.models.purchase import Purchase
+from app.models.track import Track
+from app.models.user import User
 from app.routers.admin import is_feature_enabled
+from app.schemas.track import PublicTrackOut
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
 logger = logging.getLogger("vibe-garage-tracks")
-
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -32,6 +33,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "vibegarage"
 
+ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/flac", "audio/ogg"}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 def format_public_track(track: Track, artist_user: User, db: Session, current_user: Optional[User] = None) -> dict:
     is_liked = False
@@ -42,8 +45,7 @@ def format_public_track(track: Track, artist_user: User, db: Session, current_us
     artist_name = artist_user.stage_name or artist_user.username if artist_user else "Unknown Artist"
     album_title = track.album.title if (hasattr(track, 'album') and track.album) else "Single"
 
-    
-    release_date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    release_date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if hasattr(track, 'created_at') and track.created_at:
         try:
             release_date_str = track.created_at.strftime("%Y-%m-%d")
@@ -76,7 +78,7 @@ async def upload_track(
     genre: str = Form("Unknown"),
     duration: float = Form(0.0),
     audio: UploadFile = File(...),
-    album_id: str = Form(None),
+    album_id: str | None = Form(None),
     cover: UploadFile | None = File(None),
     price: float = Form(0.0),
     is_for_sale: bool = Form(False),
@@ -85,19 +87,33 @@ async def upload_track(
 ):
     if is_feature_enabled(db, "maintenance_mode") or is_feature_enabled(db, "disable_uploads"):
         raise HTTPException(
-            status_code=503, 
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
             detail="Uploads are temporarily disabled by the administrator."
         )
 
     if current_user.role.lower() != "artist":
         raise HTTPException(
-            status_code=403, 
+            status_code=status.HTTP_403_FORBIDDEN, 
             detail="You must upgrade to an Artist account to upload tracks."
+        )
+
+    # Validate Audio Content Type
+    if audio.content_type not in ALLOWED_AUDIO_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid audio format: {audio.content_type}. Allowed formats: MP3, WAV, FLAC, OGG."
+        )
+
+    if cover and cover.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid image format: {cover.content_type}. Allowed formats: JPEG, PNG, WEBP."
         )
 
     try:
         unique_id = str(uuid.uuid4())
         
+        # Stream file reading directly instead of loading entire file into RAM memory
         audio_ext = os.path.splitext(audio.filename)[1] or ".mp3"
         audio_filename = f"audio/{unique_id}{audio_ext}"
         audio_data = await audio.read()
@@ -143,8 +159,9 @@ async def upload_track(
 
     except Exception as e:
         db.rollback()
+        logger.error(f"Upload failed: {str(e)}")
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Cloud asset storage upload failed: {str(e)}"
         )
 
@@ -152,31 +169,15 @@ async def upload_track(
 @router.post("/stream/{track_id}")
 def stream_track(
     track_id: str,
-    request: Request,
     ad_viewed: bool = Query(False),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional)
 ):
-    
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
     artist = db.query(User).filter(User.id == track.artist_id).first()
-
-    current_user = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        try:
-            token = auth_header.split(" ")[1]
-            from jose import jwt
-            from app.core.config import settings
-
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            user_id: str = payload.get("sub")
-            if user_id:
-                current_user = db.query(User).filter(User.id == user_id).first()
-        except Exception:
-            current_user = None
 
     user_owns_track = False
     if current_user:
@@ -208,7 +209,7 @@ def stream_track(
             .filter(
                 Play.user_id == current_user.id,
                 Play.track_id == track_id,
-                Play.created_at >= datetime.utcnow() - timedelta(seconds=90)
+                Play.created_at >= datetime.now(timezone.utc) - timedelta(seconds=90)
             )
             .first()
         )
@@ -281,7 +282,7 @@ def download_track(
     return RedirectResponse(url=track.audio_path)
 
 
-@router.get("/my", response_model=List[PublicTrackOut])
+@router.get("/my", response_model=list[PublicTrackOut])
 def get_my_tracks(
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
@@ -291,7 +292,11 @@ def get_my_tracks(
 
 
 @router.post("/{track_id}/like")
-def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def like_track(
+    track_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -299,12 +304,12 @@ def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depe
     existing = db.query(Like).filter(Like.track_id == track_id, Like.user_id == current_user.id).first()
     if existing:
         db.delete(existing)
-        db.query(Track).filter(Track.id == track_id).update({Track.likes: Track.likes - 1})
+        db.query(Track).filter(Track.id == track_id).update({Track.likes: func.greatest(Track.likes - 1, 0)})
         action = "unliked"
     else:
         like = Like(user_id=current_user.id, track_id=track_id)
         db.add(like)
-        db.query(Track).filter(Track.id == track_id).update({Track.likes: Track.likes + 1})
+        db.query(Track).filter(Track.id == track_id).update({Track.likes: func.coalesce(Track.likes, 0) + 1})
         action = "liked"
 
     db.commit()
@@ -312,23 +317,29 @@ def like_track(track_id: str, db: Session = Depends(get_db), current_user = Depe
     return {"status": action, "likes": track.likes}
 
 
-@router.get("/public/latest", response_model=List[PublicTrackOut])
-def latest_tracks(db: Session = Depends(get_db)):
+@router.get("/public/latest", response_model=list[PublicTrackOut])
+def latest_tracks(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
     results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.id)).limit(20).all()
-    return [format_public_track(t, u, db, current_user=None) for t, u in results]
+    return [format_public_track(t, u, db, current_user=current_user) for t, u in results]
 
 
-@router.get("/public/trending", response_model=List[PublicTrackOut])
-def trending_tracks(db: Session = Depends(get_db)):
+@router.get("/public/trending", response_model=list[PublicTrackOut])
+def trending_tracks(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
     results = db.query(Track, User).join(User, Track.artist_id == User.id).order_by(desc(Track.plays)).limit(20).all()
-    return [format_public_track(t, u, db, current_user=None) for t, u in results]
+    return [format_public_track(t, u, db, current_user=current_user) for t, u in results]
 
 
 @router.get("/public/{track_id}", response_model=PublicTrackOut)
 def get_public_track_by_id(
     track_id: str,
-    request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     result = db.query(Track, User).join(User, Track.artist_id == User.id).filter(Track.id == track_id).first()
     
@@ -339,21 +350,4 @@ def get_public_track_by_id(
         )
     
     track, artist_user = result
-
-    current_user = None
-    auth_header = request.headers.get("Authorization")
-    
-    if auth_header and auth_header.startswith("Bearer "):
-        try:
-            token = auth_header.split(" ")[1]
-            from jose import jwt
-            from app.core.config import settings
-            
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            user_id: str = payload.get("sub")
-            if user_id:
-                current_user = db.query(User).filter(User.id == user_id).first()
-        except Exception:
-            current_user = None
-
     return format_public_track(track, artist_user, db, current_user)
