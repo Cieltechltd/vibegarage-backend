@@ -80,7 +80,7 @@ def get_premium_dashboard(
 
 
 @router.post("/upload", response_model=TrackOut)
-def upload_track(
+async def upload_track( 
     title: str = Form(...),
     audio: UploadFile = File(...),
     cover: UploadFile | None = File(None),
@@ -92,8 +92,9 @@ def upload_track(
     if current_user.role.lower() != "artist":
         raise HTTPException(status_code=403, detail="Artist role required for uploads")
 
-    audio_path = save_file(audio, "audio") 
-    cover_path = save_file(cover, "covers") if cover else None
+    # Added 'await' to both calls:
+    audio_path = await save_file(audio, "audio") 
+    cover_path = await save_file(cover, "covers") if cover else None
 
     track = Track(
         id=str(uuid.uuid4()), 
