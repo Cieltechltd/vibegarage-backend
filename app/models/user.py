@@ -13,6 +13,7 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: generate_vg_id("VG-U"))
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    google_subject = Column(String, unique=True, index=True, nullable=True)
     full_name = Column(String, nullable=False)
     dob = Column(Date, nullable=True)
     username = Column(String, unique=True, index=True, nullable=True)

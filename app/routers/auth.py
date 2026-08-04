@@ -4,6 +4,9 @@ import pyotp
 import qrcode
 import hmac
 import logging
+from google.auth.transport import requests as google_requests
+from google.auth import exceptions as google_exceptions
+from google.oauth2 import id_token as google_id_token
 from io import BytesIO
 from fastapi.responses import StreamingResponse
 from fastapi import APIRouter, Depends, HTTPException, status, Header, BackgroundTasks 
@@ -22,7 +25,8 @@ from app.core.security import (
 from app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse
 from app.core.deps import get_current_user
 from datetime import datetime, timedelta
-from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
+from app.schemas.auth import ForgotPasswordRequest, GoogleLoginRequest, ResetPasswordRequest
+from app.core.config import settings
 from app.services.monetization import check_and_update_eligibility
 from app.routers.admin import is_feature_enabled
 
@@ -108,6 +112,75 @@ def login(
         if not totp.verify(x_2fa_code):
             raise HTTPException(status_code=401, detail="Invalid 2FA code")
     
+    if user.role == "ARTIST":
+        check_and_update_eligibility(user.id, db)
+
+    token = create_access_token(user.id)
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/google", response_model=TokenResponse)
+def login_with_google(data: GoogleLoginRequest, db: Session = Depends(get_db)):
+    """Sign in or create an account from a Google Identity Services ID token."""
+    if is_feature_enabled(db, "maintenance_mode"):
+        raise HTTPException(
+            status_code=503,
+            detail="Vibe Garage is currently under maintenance. Please try again later.",
+        )
+
+    if not settings.GOOGLE_CLIENT_ID:
+        logger.error("Google login was requested but GOOGLE_CLIENT_ID is not configured")
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+
+    try:
+        identity = google_id_token.verify_oauth2_token(
+            data.credential,
+            google_requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
+        )
+    except (ValueError, google_exceptions.GoogleAuthError) as exc:
+        # Malformed/expired tokens raise ValueError; google-auth errors cover
+        # invalid issuers and certificate-fetch failures. Do not expose details.
+        logger.info("Google ID token verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid or expired Google credential")
+
+    google_subject = identity.get("sub")
+    email = identity.get("email")
+    if not google_subject or not email or not identity.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google account email is not verified")
+
+    user = db.query(User).filter(User.google_subject == google_subject).first()
+    if user is None:
+        # A verified Google email safely links an existing password account.
+        user = db.query(User).filter(User.email == email).first()
+        if user is not None:
+            user.google_subject = google_subject
+            user.is_active = True
+            user.is_verified = True
+            user.verification_code = None
+        else:
+            if is_feature_enabled(db, "disable_signups"):
+                raise HTTPException(status_code=403, detail="New registrations are temporarily closed.")
+
+            full_name = identity.get("name") or email.split("@", 1)[0]
+            user = User(
+                id=generate_vg_id("VG-U"),
+                email=email,
+                full_name=full_name,
+                # Password login remains unavailable until the user explicitly
+                # creates a password through the existing reset-password flow.
+                password_hash=hash_password(secrets.token_urlsafe(48)),
+                google_subject=google_subject,
+                avatar_url=identity.get("picture"),
+                role="listener",
+                is_active=True,
+                is_verified=True,
+            )
+            db.add(user)
+
+        db.commit()
+        db.refresh(user)
+
     if user.role == "ARTIST":
         check_and_update_eligibility(user.id, db)
 

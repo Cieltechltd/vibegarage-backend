@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     PAYSTACK_SECRET_KEY: str
     BASE_URL: str = "https://vibegarage.app"
 
+    # Google OAuth 2.0 Web client ID. The frontend obtains an ID token for this
+    # client and sends it to POST /auth/google for server-side verification.
+    GOOGLE_CLIENT_ID: str = ""
+
     
     UPLOAD_AVATAR_DIR: str = "app/uploads/avatars"
     UPLOAD_AUDIO_DIR: str = "app/uploads/audio"
