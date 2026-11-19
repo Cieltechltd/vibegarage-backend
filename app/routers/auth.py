@@ -22,7 +22,7 @@ from app.core.security import (
     generate_vg_id,
     generate_verification_code,
     send_welcome_verification_email,
-    send_password_reset_email,send_welcome_verification_email,
+    
     send_password_reset_email,
 ) 
 from app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse
