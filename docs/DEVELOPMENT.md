@@ -25,6 +25,7 @@ configuration unless a default is shown:
 | `BASE_URL` | Public backend/site base URL; defaults to `https://vibegarage.app`. |
 | `GOOGLE_CLIENT_ID` | Google OAuth web client ID used to verify frontend ID tokens. |
 | `RESEND_API_KEY` | Verification email API key, read by the email helper. |
+| `PASSWORD_RESET_URL` | Frontend password reset page; defaults to `https://vibegarage.app/reset-password`. |
 
 Do not commit `.env` or production secrets. Rotate a secret immediately if it
 has been exposed.
