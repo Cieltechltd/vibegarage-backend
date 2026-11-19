@@ -1,4 +1,5 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 .env
@@ -9,7 +10,9 @@ __pycache__/
 app.db
 vibegrage.db
 *alembic_version
-alembic # Alembic migration files
-migrations # SQLAlchemy migration files
-alembic.ini
 .env
+
+# Local user uploads should live in object storage, not in Git.
+app/uploads/audio/*
+app/uploads/covers/*
+app/uploads/clips/*

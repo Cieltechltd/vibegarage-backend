@@ -1,3 +1,4 @@
+from html import escape
 import os
 import uuid
 import random 
@@ -175,3 +176,37 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
         hashlib.sha512
     ).hexdigest()
     return hmac.compare_digest(computed_signature, signature)
+
+def send_password_reset_email(email: str, token: str) -> bool:
+    """Send a one-time password reset link without exposing it in the API."""
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        logger.error("RESEND_API_KEY is not set; password reset email was not sent.")
+        return False
+
+    reset_url = f"{settings.PASSWORD_RESET_URL}?token={token}"
+    safe_reset_url = escape(reset_url, quote=True)
+    payload = {
+        "from": "Vibe Garage <hello@vibegarage.app>",
+        "to": [email],
+        "subject": "Reset your VibeGarage password",
+        "html": (
+            "<p>We received a request to reset your VibeGarage password.</p>"
+            f'<p><a href="{safe_reset_url}">Reset your password</a></p>'
+            "<p>This link expires in 30 minutes. If you did not request this, "
+            "you can ignore this email.</p>"
+        ),
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post("https://api.resend.com/emails", headers=headers, json=payload, timeout=10)
+        if response.status_code in (200, 201):
+            return True
+        logger.error("Password reset email delivery failed with status %s.", response.status_code)
+    except requests.RequestException as exc:
+        logger.error("Password reset email delivery failed: %s", exc)
+    return False

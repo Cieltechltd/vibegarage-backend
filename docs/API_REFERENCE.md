@@ -25,8 +25,8 @@ those for field-level request schemas and response examples.
 | POST | `/auth/verify-email` | No | Activate account with email and verification code query parameters. |
 | GET | `/auth/2fa/setup` | Yes | Return an administrator’s TOTP QR image. |
 | POST | `/auth/2fa/enable` | Yes | Enable TOTP with a verified code. |
-| POST | `/auth/forgot-password` | No | Start password reset flow. |
-| POST | `/auth/reset-password` | No | Complete password reset. |
+| POST | `/auth/forgot-password` | No | Send a reset link; always return the same generic response. |
+| POST | `/auth/reset-password` | No | Complete reset with a one-time, expiring token; 2FA is also required when enabled. |
 
 ### Email signup
 

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
    
     PAYSTACK_SECRET_KEY: str
     BASE_URL: str = "https://vibegarage.app"
+    PASSWORD_RESET_URL: str = "https://vibegarage.app/reset-password"
 
     # Google OAuth 2.0 Web client ID. The frontend obtains an ID token for this
     # client and sends it to POST /auth/google for server-side verification.

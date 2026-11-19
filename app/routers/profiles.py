@@ -1,6 +1,8 @@
 import io
 import uuid
 import segno
+import json
+from html import escape
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -181,26 +183,33 @@ def get_artist_profile_or_preview(
             ]
         }
 
+    safe_username = escape(username, quote=True)
+    safe_bio = escape(bio, quote=True)
+    safe_avatar_url = escape(avatar_url, quote=True)
+    safe_profile_url = escape(profile_url, quote=True)
+    redirect_target = json.dumps(f"https://vibegarage.app/artists/{artist.username}")
+    redirect_target = redirect_target.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
-        <meta property="og:title" content="{username} | Vibe Garage Artist" />
-        <meta property="og:description" content="{bio} | {total_plays} Total Plays" />
-        <meta property="og:image" content="{avatar_url}" />
-        <meta property="og:url" content="{profile_url}" />
+        <meta property="og:title" content="{safe_username} | Vibe Garage Artist" />
+        <meta property="og:description" content="{safe_bio} | {total_plays} Total Plays" />
+        <meta property="og:image" content="{safe_avatar_url}" />
+        <meta property="og:url" content="{safe_profile_url}" />
         <meta property="og:type" content="profile" />
         <meta name="twitter:card" content="summary_large_image">
-        <link rel="canonical" href="{profile_url}">
-        <title>{username} - Vibe Garage</title>
+        <link rel="canonical" href="{safe_profile_url}">
+        <title>{safe_username} - Vibe Garage</title>
     </head>
     <body>
         <script>
-            window.location.href = "https://vibegarage.app/artists/{artist.username}";
+            window.location.href = {redirect_target};
         </script>
         <p style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-            Redirecting to {username}'s profile...
+            Redirecting to {safe_username}'s profile...
         </p>
     </body>
     </html>
