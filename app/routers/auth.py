@@ -3,6 +3,7 @@ import uuid
 import pyotp
 import qrcode
 import hmac
+import hashlib
 import logging
 from google.auth.transport import requests as google_requests
 from google.auth import exceptions as google_exceptions
@@ -20,7 +21,9 @@ from app.core.security import (
     create_access_token, \
     generate_vg_id,
     generate_verification_code,
-    send_welcome_verification_email  
+    send_welcome_verification_email,
+    send_password_reset_email,send_welcome_verification_email,
+    send_password_reset_email,
 ) 
 from app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse
 from app.core.deps import get_current_user
@@ -260,22 +263,28 @@ def enable_2fa(code: str, current_user: User = Depends(get_current_user), db: Se
     return {"message": "2FA enabled successfully"}
 
 @router.post("/forgot-password")
-def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(
+    data: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
         return {"message": "If the email exists, a reset link has been sent"}
 
     token = secrets.token_urlsafe(32)
-    user.reset_token = token
+    user.reset_token = hashlib.sha256(token.encode("utf-8")).hexdigest()
     user.reset_token_expires = datetime.utcnow() + timedelta(minutes=30)
     db.commit()
 
-    return {"message": "Password reset token generated", "reset_token": token}
+    background_tasks.add_task(send_password_reset_email, user.email, token)
+    return {"message": "If the email exists, a reset link has been sent"}
 
 @router.post("/reset-password")
 def reset_password(data: ResetPasswordRequest, x_2fa_code: Optional[str] = Header(None, alias="X-2FA-Code"), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.reset_token == data.token).first()
-    if not user or (user.reset_token_expires and user.reset_token_expires < datetime.utcnow()):
+    token_hash = hashlib.sha256(data.token.encode("utf-8")).hexdigest()
+    user = db.query(User).filter(User.reset_token == token_hash).first()
+    if not user or not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
     if getattr(user, 'two_factor_enabled', False):
