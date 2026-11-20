@@ -53,8 +53,10 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(computed_hash, signature)
 
 
-def _grant_or_extend_verification(db: Session, user: User, plan_key: str, paid_amount_kobo) -> bool:
-   
+def _grant_or_extend_verification(
+    db: Session, user: User, plan_key: str, paid_amount_kobo, reference: str
+) -> bool:
+    """Apply a verification payment once, using its Paystack reference as the key."""
     plan_info = VERIFICATION_PLANS.get(plan_key)
     if not plan_info:
         return False
@@ -63,12 +65,56 @@ def _grant_or_extend_verification(db: Session, user: User, plan_key: str, paid_a
     if paid_amount_kobo != expected_amount_kobo:
         return False
 
+    # Serialize callbacks for this artist, including older payments without a local row.
+    locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
+    if not locked_user:
+        return False
+
+    transaction = (
+        db.query(Transaction)
+        .filter(Transaction.reference == reference)
+        .with_for_update()
+        .first()
+    )
+    expected_description = f"artist_verification:{plan_key}"
+
+    if transaction:
+        if (
+            transaction.user_id != locked_user.id
+            or transaction.type != TransactionType.PURCHASE
+            or transaction.description != expected_description
+            or round(transaction.amount * 100) != expected_amount_kobo
+        ):
+            return False
+        if transaction.status == "success":
+            return True
+        if transaction.status != "pending":
+            return False
+    else:
+        # Older verification checkouts did not create a local transaction row.
+        # Record their reference before applying the benefit so future retries skip it.
+        transaction = Transaction(
+            id=uuid.uuid4(),
+            user_id=locked_user.id,
+            amount=plan_info["amount_ngn"],
+            type=TransactionType.PURCHASE,
+            status="pending",
+            description=expected_description,
+            reference=reference,
+        )
+        db.add(transaction)
+
     now = datetime.utcnow()
-    base_date = user.subscription_expiry if (user.subscription_expiry and user.subscription_expiry > now) else now
-    user.subscription_expiry = base_date + timedelta(days=plan_info["duration_days"])
-    user.is_verified_artist = True
-    user.verification_fee_paid = True
-    user.verified_at = now
+    base_date = (
+        locked_user.subscription_expiry
+        if locked_user.subscription_expiry and locked_user.subscription_expiry > now
+        else now
+    )
+    locked_user.subscription_expiry = base_date + timedelta(days=plan_info["duration_days"])
+    locked_user.is_verified_artist = True
+    locked_user.verification_fee_paid = True
+    locked_user.verified_at = now
+    transaction.status = "success"
     db.commit()
     return True
 
@@ -85,6 +131,7 @@ def list_verification_plans():
 @router.post("/verify-artist/initialize")
 async def initialize_verification(
     plan: str = Query(..., description=f"One of: {', '.join(VERIFICATION_PLANS.keys())}"),
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Starts (or renews) the artist verification subscription for the chosen plan."""
@@ -97,10 +144,24 @@ async def initialize_verification(
 
     url = "https://api.paystack.co/transaction/initialize"
     headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
+    reference = f"VG-VER-{uuid.uuid4().hex.upper()}"
+
+    new_transaction = Transaction(
+        id=uuid.uuid4(),
+        user_id=current_user.id,
+        amount=plan_info["amount_ngn"],
+        type=TransactionType.PURCHASE,
+        status="pending",
+        description=f"artist_verification:{plan}",
+        reference=reference,
+    )
+    db.add(new_transaction)
+    db.commit()
 
     payload = {
         "email": current_user.email,
         "amount": plan_info["amount_ngn"] * 100,
+        "reference": reference,
         "callback_url": "https://vibegarage.app/verify-success",
         "metadata": {"user_id": current_user.id, "type": "artist_verification", "plan": plan}
     }
@@ -109,12 +170,16 @@ async def initialize_verification(
         response = await client.post(url, json=payload, headers=headers)
         data = response.json()
 
-    if not data.get("status"):
+    if not data.get("status") or (data.get("data") or {}).get("reference") != reference:
+        db.refresh(new_transaction)
+        if new_transaction.status == "pending":
+            new_transaction.status = "failed"
+            db.commit()
         raise HTTPException(status_code=400, detail="Could not initialize payment")
 
     return {
         "checkout_url": data["data"]["authorization_url"],
-        "reference": data["data"]["reference"],
+        "reference": reference,
         "plan": plan,
         "amount_ngn": plan_info["amount_ngn"]
     }
@@ -130,8 +195,14 @@ async def confirm_verification(reference: str, db: Session = Depends(get_db)):
         response = await client.get(url, headers=headers)
         data = response.json()
 
-    if data.get("status") and data["data"]["status"] == "success":
+    if (
+        data.get("status")
+        and data["data"].get("status") == "success"
+        and data["data"].get("reference") == reference
+    ):
         metadata = data["data"].get("metadata", {})
+        if metadata.get("type") != "artist_verification":
+            raise HTTPException(status_code=400, detail="Payment is not an artist verification transaction")
         user_id = metadata.get("user_id")
         plan_key = metadata.get("plan")
         paid_amount = data["data"].get("amount")
@@ -140,7 +211,7 @@ async def confirm_verification(reference: str, db: Session = Depends(get_db)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found for this transaction.")
 
-        granted = _grant_or_extend_verification(db, user, plan_key, paid_amount)
+        granted = _grant_or_extend_verification(db, user, plan_key, paid_amount, reference)
         if not granted:
             logger.warning(
                 f"verify-artist/confirm rejected for user {user_id}: "
@@ -283,7 +354,7 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
 
             user = db.query(User).filter(User.id == user_id).first()
             if user:
-                granted = _grant_or_extend_verification(db, user, plan_key, paid_amount)
+                granted = _grant_or_extend_verification(db, user, plan_key, paid_amount, reference)
                 if not granted:
                     logger.warning(
                         f"webhook artist_verification rejected for user {user_id}: "
