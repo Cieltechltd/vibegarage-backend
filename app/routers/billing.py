@@ -65,7 +65,8 @@ def _grant_or_extend_verification(
     if paid_amount_kobo != expected_amount_kobo:
         return False
 
-    # Serialize callbacks for this artist, including older payments without a local row.
+    # Serialize callbacks for this artist. This also makes legacy payments without
+    # a locally stored transaction safe to process exactly once.
     locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
     if not locked_user:
         return False
@@ -256,6 +257,18 @@ async def initialize_track_purchase(
     reference = f"VG-TRK-{uuid.uuid4().hex[:8].upper()}"
     url = "https://api.paystack.co/transaction/initialize"
     headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
+
+    new_transaction = Transaction(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        track_id=track_id,
+        amount=track.price,
+        type=TransactionType.PURCHASE,
+        reference=reference,
+        status="pending",
+    )
+    db.add(new_transaction)
+    db.commit()
     
     payload = {
         "email": current_user.email,
@@ -269,24 +282,24 @@ async def initialize_track_purchase(
         }
     }
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
-        response = await client.post(url, json=payload, headers=headers)
-        data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        # Keep the transaction pending when the result is ambiguous. Paystack
+        # may have accepted the request before the connection was interrupted,
+        # and its webhook still needs a local reference to reconcile against.
+        logger.exception("Could not confirm Paystack initialization for %s", reference)
+        raise HTTPException(
+            status_code=502,
+            detail="Payment setup could not be confirmed. Please contact support before retrying.",
+        ) from exc
 
-    if not data.get("status"):
+    if not data.get("status") or (data.get("data") or {}).get("reference") != reference:
+        new_transaction.status = "failed"
+        db.commit()
         raise HTTPException(status_code=400, detail="Could not initialize track purchase")
-
-    new_transaction = Transaction(
-        id=str(uuid.uuid4()),
-        user_id=current_user.id,
-        track_id=track_id,
-        amount=track.price,
-        type=TransactionType.PURCHASE,
-        reference=reference,
-        status="pending"
-    )
-    db.add(new_transaction)
-    db.commit()
 
     return {"checkout_url": data["data"]["authorization_url"], "reference": reference}
 
@@ -312,41 +325,7 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
         if payment_type == "track_purchase":
             user_id = metadata.get("user_id")
             track_id = metadata.get("track_id")
-
-            existing = db.query(Purchase).filter(Purchase.transaction_ref == reference).first()
-            if not existing:
-                track = db.query(Track).filter(Track.id == track_id).first()
-                expected_amount = int(track.price * 100) if track else None
-
-                if track is None or paid_amount != expected_amount:
-                    logger.warning(
-                        f"webhook track_purchase rejected for reference {reference}: "
-                        f"track_id={track_id} paid_amount={paid_amount} expected={expected_amount}"
-                    )
-                else:
-                    txn = db.query(Transaction).filter(Transaction.reference == reference).first()
-                    if txn:
-                        txn.status = "success"
-
-                    new_purchase = Purchase(
-                        id=str(uuid.uuid4()),
-                        user_id=user_id,
-                        track_id=track_id,
-                        transaction_ref=reference
-                    )
-                    db.add(new_purchase)
-
-                    artist = db.query(User).filter(User.id == track.artist_id).first()
-                    if artist:
-                        sale_amount_ngn = paid_amount / 100
-                        apply_platform_fee_and_credit(
-                            db, artist, sale_amount_ngn, source="track_sale",
-                            reference=reference, track_id=track_id
-                        )
-                    else:
-                        logger.warning(f"Track sale {reference}: could not find artist {track.artist_id} to credit.")
-
-                    db.commit()
+            _process_track_purchase(db, user_id, track_id, paid_amount, reference)
 
         elif payment_type == "artist_verification":
             user_id = metadata.get("user_id")
@@ -387,3 +366,78 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                     db.commit()
 
     return {"status": "success"}
+
+
+def _process_track_purchase(
+    db: Session, user_id: str, track_id: str, paid_amount_kobo: int, reference: str
+) -> bool:
+    """Record and credit one track purchase, safely handling retried webhooks."""
+    # The local transaction is created before checkout. Locking it serializes
+    # concurrent Paystack retries for the same reference until the purchase and
+    # artist credit are committed together.
+    txn = (
+        db.query(Transaction)
+        .filter(Transaction.reference == reference)
+        .with_for_update()
+        .first()
+    )
+    if not txn:
+        logger.warning("Track purchase webhook has no local transaction for reference %s", reference)
+        # Ask Paystack to retry instead of acknowledging a callback that arrived
+        # before its transaction record became visible.
+        raise HTTPException(status_code=503, detail="Payment record is not ready; retry the webhook.")
+
+    if (
+        txn.type != TransactionType.PURCHASE
+        or txn.user_id != user_id
+        or str(txn.track_id) != str(track_id)
+        or round(float(txn.amount) * 100) != paid_amount_kobo
+    ):
+        logger.warning(
+            "Track purchase webhook does not match local transaction for reference %s", reference
+        )
+        return False
+
+    if txn.status == "success":
+        return True
+    if txn.status not in {"pending", "failed"}:
+        logger.warning("Track purchase transaction %s is not pending", reference)
+        return False
+
+    track = db.query(Track).filter(Track.id == txn.track_id).first()
+    if not track:
+        logger.warning("Track purchase webhook references missing track %s", txn.track_id)
+        return False
+
+    existing = db.query(Purchase).filter(Purchase.transaction_ref == reference).first()
+    if existing:
+        # A purchase should normally be committed with the successful status.
+        # Treat an already-recorded reference as processed to avoid a second credit.
+        txn.status = "success"
+        db.commit()
+        return True
+
+    purchase = Purchase(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        track_id=txn.track_id,
+        transaction_ref=reference,
+    )
+    db.add(purchase)
+
+    artist = db.query(User).filter(User.id == track.artist_id).with_for_update().first()
+    if artist:
+        apply_platform_fee_and_credit(
+            db,
+            artist,
+            paid_amount_kobo / 100,
+            source="track_sale",
+            reference=reference,
+            track_id=str(txn.track_id),
+        )
+    else:
+        logger.warning("Track sale %s: could not find artist %s to credit", reference, track.artist_id)
+
+    txn.status = "success"
+    db.commit()
+    return True
