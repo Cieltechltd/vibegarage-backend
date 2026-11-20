@@ -27,11 +27,14 @@ def get_available_balance(user_id: str, db: Session) -> float:
     return float(gross_earnings - locked_funds)
 
 def create_payout_request(user_id: str, amount: float, db: Session):
-    user = db.query(User).filter(User.id == user_id).first()
-    
-    
+    # Lock this artist row while checking the balance and reserving funds. This
+    # makes simultaneous payout requests for the same artist run one at a time.
+    user = db.query(User).filter(User.id == user_id).with_for_update().first()
+    if not user:
+        return None, "Artist account not found."
+
     available_balance = get_available_balance(user_id, db)
-    
+
     if amount > available_balance:
         return None, f"Insufficient funds. Your available balance is NGN {available_balance:,.2f}."
 
