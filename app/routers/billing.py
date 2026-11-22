@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.core.deps import get_current_user
 from app.db.database import get_db
 from app.models.user import User
@@ -343,27 +344,13 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
         elif payment_type == "tip":
             artist_id = metadata.get("artist_id")
             fanlink_slug = metadata.get("fanlink_slug")
-
-            artist = db.query(User).filter(User.id == artist_id).first()
-            if not artist:
-                logger.warning(f"Tip webhook could not find artist {artist_id} for fanlink {fanlink_slug}")
-            else:
-                already_processed = db.query(EarningEntry).filter(
-                    EarningEntry.reference == reference
-                ).first()
-
-                if already_processed:
-                    logger.info(f"Tip {reference} already credited -- skipping duplicate webhook delivery.")
-                else:
-                    tip_amount_ngn = paid_amount / 100  
-                    fanlink = db.query(FanLink).filter(FanLink.slug == fanlink_slug).first()
-                    tip_track_id = str(fanlink.track_id) if fanlink else None
-
-                    apply_platform_fee_and_credit(
-                        db, artist, tip_amount_ngn, source="tip",
-                        reference=reference, track_id=tip_track_id
-                    )
-                    db.commit()
+            currency = data["data"].get("currency")
+            if not _process_tip(
+                db, artist_id, fanlink_slug, paid_amount, reference, currency
+            ):
+                logger.warning(
+                    "Tip webhook did not match a valid tip for reference %s", reference
+                )
 
     return {"status": "success"}
 
@@ -439,5 +426,63 @@ def _process_track_purchase(
         logger.warning("Track sale %s: could not find artist %s to credit", reference, track.artist_id)
 
     txn.status = "success"
+    db.commit()
+    return True
+
+def _process_tip(
+    db: Session,
+    artist_id: str,
+    fanlink_slug: str,
+    paid_amount_kobo: int,
+    reference: str,
+    currency: str,
+) -> bool:
+    """Credit a verified tip once, serializing retries and artist balance updates."""
+    if (
+        not artist_id
+        or not fanlink_slug
+        or not reference
+        or currency != "NGN"
+        or type(paid_amount_kobo) is not int
+        or paid_amount_kobo <= 0
+    ):
+        return False
+
+    # A transaction-scoped advisory lock works even though tip checkouts do not
+    # currently create a local Transaction row. It serializes concurrent webhook
+    # deliveries with the same Paystack reference before checking for an earning.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:reference))"),
+        {"reference": reference},
+    )
+
+    already_processed = db.query(EarningEntry).filter(
+        EarningEntry.reference == reference
+    ).first()
+    if already_processed:
+        logger.info("Tip %s already credited; skipping duplicate webhook delivery.", reference)
+        return True
+
+    fanlink = (
+        db.query(FanLink)
+        .filter(FanLink.slug == fanlink_slug)
+        .with_for_update()
+        .first()
+    )
+    if not fanlink or not fanlink.accept_tips or str(fanlink.artist_id) != str(artist_id):
+        return False
+
+    artist = db.query(User).filter(User.id == artist_id).with_for_update().first()
+    if not artist:
+        return False
+
+    apply_platform_fee_and_credit(
+        db,
+        artist,
+        paid_amount_kobo / 100,
+        source="tip",
+        reference=reference,
+        track_id=str(fanlink.track_id),
+    )
     db.commit()
     return True
