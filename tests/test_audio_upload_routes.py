@@ -22,6 +22,7 @@ os.environ.setdefault("ADMIN_EMAIL", "admin@example.test")
 os.environ.setdefault("PAYSTACK_SECRET_KEY", "unit-test-paystack-key")
 
 with patch.object(supabase, "create_client", return_value=None):
+    from app.services import track_media
     from app.routers import album as album_router
     from app.routers import artist as artist_router
     from app.routers import track as track_router
@@ -111,6 +112,16 @@ class AudioUploadRouteTests(unittest.IsolatedAsyncioTestCase):
                     await self._invoke_route(route_name, "audio/mpeg", b"")
                 self.assertEqual(raised.exception.status_code, 400)
                 self.assertEqual(raised.exception.detail, expected)
+
+    async def test_all_upload_routes_enforce_the_shared_audio_size_limit(self):
+        expected = "Audio file exceeds the 50 MB limit. Choose a smaller file."
+        with patch.object(track_media, "MAX_AUDIO_UPLOAD_BYTES", 8):
+            for route_name in ("track", "artist", "album"):
+                with self.subTest(route=route_name):
+                    with self.assertRaises(HTTPException) as raised:
+                        await self._invoke_route(route_name, "audio/mpeg", b"123456789")
+                    self.assertEqual(raised.exception.status_code, 413)
+                    self.assertEqual(raised.exception.detail, expected)
 
 
 if __name__ == "__main__":
