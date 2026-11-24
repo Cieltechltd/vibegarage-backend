@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import app.shim as shim
 import os
 from fastapi import FastAPI
