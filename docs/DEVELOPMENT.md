@@ -19,6 +19,7 @@ configuration unless a default is shown:
 | `ALGORITHM` | JWT algorithm; defaults to `HS256`. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT lifetime; defaults to `60`. |
 | `SUPABASE_URL`, `SUPABASE_KEY` | Supabase integration configuration. |
+| `SUPABASE_PAID_AUDIO_BUCKET` | Private bucket for paid original tracks; defaults to `vibegarage-paid-audio`. |
 | `MASTER_ADMIN_EMAIL`, `MASTER_ADMIN_PASSWORD` | Bootstrap administrator credentials. |
 | `SMTP_USER`, `SMTP_PASSWORD`, `ADMIN_EMAIL` | Mail configuration. SMTP host defaults to Gmail on port 587. |
 | `PAYSTACK_SECRET_KEY` | Paystack payment and webhook signing secret. |
@@ -92,6 +93,7 @@ token expected by this endpoint.
 - Configure a durable media/object-storage strategy before scaling beyond one
   instance; local `app/uploads` storage is instance-local.
 - Configure Paystack webhook delivery to the public billing webhook endpoint.
+- Keep paid originals in the private `vibegarage-paid-audio` Storage bucket. The existing `vibegarage` bucket remains public for free tracks, covers, and generated 15-second previews.
 - Configure allowed frontend origins in the CORS list where necessary.
 - Confirm scheduler lifecycle and logs in the process manager.
 
