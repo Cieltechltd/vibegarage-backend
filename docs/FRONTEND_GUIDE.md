@@ -92,8 +92,12 @@ the preview URL instead.
 - Premium tracks with access can use the full stream.
 
 Use `POST /billing/buy-track/{track_id}` to initialize payment. Redirect the
-user using the authorization URL supplied by the payment response, then refresh
-the track/library after Paystack confirmation.
+user using the authorization URL supplied by the payment response. When
+Paystack returns the buyer to the purchase success page, call
+`GET /billing/buy-track/confirm/{reference}` with the signed-in user's token.
+The backend verifies the payment directly with Paystack and adds the track to
+the library once. The webhook remains enabled if the buyer closes the page
+before returning.
 
 ## Main client flows
 

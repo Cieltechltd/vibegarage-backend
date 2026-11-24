@@ -41,6 +41,28 @@ logger = logging.getLogger(__name__)
 class AudioUploadTooLarge(ValueError):
     """Raised when an uploaded audio file exceeds the shared size limit."""
 
+
+def _matches_audio_signature(audio_bytes: bytes, content_type: str) -> bool:
+    """Check the container/header so a renamed non-audio file is rejected."""
+    if content_type in {"audio/mpeg", "audio/mp3"}:
+        # MP3 may start with an ID3 tag or directly with an MPEG audio frame.
+        return audio_bytes.startswith(b"ID3") or (
+            len(audio_bytes) >= 2
+            and audio_bytes[0] == 0xFF
+            and audio_bytes[1] & 0xE0 == 0xE0
+        )
+    if content_type in {"audio/wav", "audio/x-wav"}:
+        return (
+            len(audio_bytes) >= 12
+            and audio_bytes.startswith(b"RIFF")
+            and audio_bytes[8:12] == b"WAVE"
+        )
+    if content_type == "audio/flac":
+        return audio_bytes.startswith(b"fLaC")
+    if content_type == "audio/ogg":
+        return audio_bytes.startswith(b"OggS")
+    return False
+
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Supabase credentials missing from environment variables.")
 
@@ -122,6 +144,11 @@ def validate_audio_upload(audio_bytes: bytes, content_type: str | None) -> str:
         raise ValueError("Unsupported audio format. Upload an MP3, WAV, FLAC, or OGG file.")
     if not audio_bytes:
         raise ValueError("The audio file is empty. Choose a non-empty audio file and try again.")
+    if not _matches_audio_signature(audio_bytes, normalized_type):
+        raise ValueError(
+            "File contents do not match the selected audio format. "
+            "Upload a valid MP3, WAV, FLAC, or OGG file."
+        )
     return normalized_type
 
 

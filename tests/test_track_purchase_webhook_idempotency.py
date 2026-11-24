@@ -3,6 +3,7 @@
 import os
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.update(
     {
@@ -32,7 +33,7 @@ from app.models.purchase import Purchase
 from app.models.track import Track
 from app.models.transaction import Transaction, TransactionType
 from app.models.user import User
-from app.routers.billing import _process_track_purchase
+from app.routers.billing import _process_track_purchase, confirm_track_purchase
 
 
 class FakeQuery:
@@ -150,6 +151,18 @@ class TrackPurchaseWebhookIdempotencyTests(unittest.TestCase):
         self.assertEqual(self.db.earnings, [])
         self.assertEqual(self.artist.balance_ngn, 0.0)
         self.assertEqual(self.db.commits, 0)
+
+    def test_non_ngn_payment_does_not_create_purchase_or_credit(self):
+        self.assertFalse(
+            _process_track_purchase(
+                self.db, self.user_id, self.track_id, 100000, self.reference,
+                currency="USD",
+            )
+        )
+
+        self.assertEqual(self.db.purchases, [])
+        self.assertEqual(self.db.earnings, [])
+        self.assertEqual(self.artist.balance_ngn, 0.0)
         self.assertEqual(self.transaction.status, "pending")
 
     def test_mismatched_user_does_not_create_purchase_or_credit(self):
@@ -176,6 +189,95 @@ class TrackPurchaseWebhookIdempotencyTests(unittest.TestCase):
         self.assertEqual(self.db.purchases, [])
         self.assertEqual(self.db.earnings, [])
         self.assertEqual(self.db.commits, 0)
+
+
+class FakePaystackResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+
+class FakePaystackClient:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, *_args, **_kwargs):
+        return FakePaystackResponse(self.payload)
+
+
+class TrackPurchaseConfirmationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_confirmation_verifies_with_paystack_and_grants_library_access(self):
+        reference = "VG-TRK-REFERENCE"
+        listener_id = "listener-1"
+        track_id = "track-1"
+        txn = SimpleNamespace(
+            reference=reference,
+            user_id=listener_id,
+            track_id=track_id,
+            amount=1000.0,
+            type=TransactionType.PURCHASE,
+            status="pending",
+        )
+        track = SimpleNamespace(id=track_id, artist_id="artist-1", price=1000.0)
+        artist = SimpleNamespace(id="artist-1", balance_ngn=0.0)
+        db = FakeSession(txn, track, artist)
+        payload = {
+            "status": True,
+            "data": {
+                "status": "success",
+                "reference": reference,
+                "currency": "NGN",
+                "amount": 100000,
+                "metadata": {
+                    "type": "track_purchase",
+                    "user_id": listener_id,
+                    "track_id": track_id,
+                },
+            },
+        }
+
+        with patch("app.routers.billing.httpx.AsyncClient", return_value=FakePaystackClient(payload)):
+            result = await confirm_track_purchase(
+                reference, db, SimpleNamespace(id=listener_id)
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(db.purchases), 1)
+        self.assertEqual(len(db.earnings), 1)
+        self.assertEqual(txn.status, "success")
+
+    async def test_confirmation_rejects_another_buyers_payment(self):
+        payload = {
+            "status": True,
+            "data": {
+                "status": "success",
+                "reference": "VG-TRK-REFERENCE",
+                "currency": "NGN",
+                "amount": 100000,
+                "metadata": {
+                    "type": "track_purchase",
+                    "user_id": "different-listener",
+                    "track_id": "track-1",
+                },
+            },
+        }
+        with patch("app.routers.billing.httpx.AsyncClient", return_value=FakePaystackClient(payload)):
+            with self.assertRaises(HTTPException) as raised:
+                await confirm_track_purchase(
+                    "VG-TRK-REFERENCE",
+                    FakeSession(None, None, None),
+                    SimpleNamespace(id="listener-1"),
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
 
 
 if __name__ == "__main__":

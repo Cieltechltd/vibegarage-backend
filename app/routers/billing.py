@@ -55,7 +55,8 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
 
 
 def _grant_or_extend_verification(
-    db: Session, user: User, plan_key: str, paid_amount_kobo, reference: str
+    db: Session, user: User, plan_key: str, paid_amount_kobo, reference: str,
+    currency: str = "NGN",
 ) -> bool:
     """Apply a verification payment once, using its Paystack reference as the key."""
     plan_info = VERIFICATION_PLANS.get(plan_key)
@@ -63,7 +64,7 @@ def _grant_or_extend_verification(
         return False
 
     expected_amount_kobo = plan_info["amount_ngn"] * 100
-    if paid_amount_kobo != expected_amount_kobo:
+    if currency != "NGN" or paid_amount_kobo != expected_amount_kobo:
         return False
 
     # Serialize callbacks for this artist. This also makes legacy payments without
@@ -163,6 +164,7 @@ async def initialize_verification(
     payload = {
         "email": current_user.email,
         "amount": plan_info["amount_ngn"] * 100,
+        "currency": "NGN",
         "reference": reference,
         "callback_url": "https://vibegarage.app/verify-success",
         "metadata": {"user_id": current_user.id, "type": "artist_verification", "plan": plan}
@@ -201,6 +203,7 @@ async def confirm_verification(reference: str, db: Session = Depends(get_db)):
         data.get("status")
         and data["data"].get("status") == "success"
         and data["data"].get("reference") == reference
+        and data["data"].get("currency") == "NGN"
     ):
         metadata = data["data"].get("metadata", {})
         if metadata.get("type") != "artist_verification":
@@ -274,6 +277,7 @@ async def initialize_track_purchase(
     payload = {
         "email": current_user.email,
         "amount": int(track.price * 100), 
+        "currency": "NGN",
         "reference": reference,
         "callback_url": "https://vibegarage.app/purchase-success",
         "metadata": {
@@ -305,6 +309,49 @@ async def initialize_track_purchase(
     return {"checkout_url": data["data"]["authorization_url"], "reference": reference}
 
 
+@router.get("/buy-track/confirm/{reference}")
+async def confirm_track_purchase(
+    reference: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verify a completed Paystack checkout and grant the track purchase once."""
+    url = f"https://api.paystack.co/transaction/verify/{reference}"
+    headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.get(url, headers=headers)
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.exception("Could not verify track purchase %s with Paystack", reference)
+        raise HTTPException(status_code=502, detail="Could not verify payment right now.") from exc
+
+    payment = data.get("data") or {}
+    metadata = payment.get("metadata") or {}
+    if (
+        not data.get("status")
+        or payment.get("status") != "success"
+        or payment.get("reference") != reference
+        or payment.get("currency") != "NGN"
+        or metadata.get("type") != "track_purchase"
+        or str(metadata.get("user_id")) != str(current_user.id)
+    ):
+        raise HTTPException(status_code=400, detail="Payment could not be confirmed for this account.")
+
+    track_id = metadata.get("track_id")
+    if not track_id:
+        raise HTTPException(status_code=400, detail="Payment is missing its track details.")
+
+    if not _process_track_purchase(
+        db, current_user.id, track_id, payment.get("amount"), reference,
+        currency=payment.get("currency"),
+    ):
+        raise HTTPException(status_code=400, detail="Payment does not match this track purchase.")
+
+    return {"status": "success", "message": "Track added to your library.", "track_id": track_id}
+
+
 @router.post("/webhook")
 async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
     """Background handler for successful payments."""
@@ -322,11 +369,14 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
         metadata = data["data"].get("metadata", {})
         payment_type = metadata.get("type")
         paid_amount = data["data"].get("amount")
+        currency = data["data"].get("currency")
 
         if payment_type == "track_purchase":
             user_id = metadata.get("user_id")
             track_id = metadata.get("track_id")
-            _process_track_purchase(db, user_id, track_id, paid_amount, reference)
+            _process_track_purchase(
+                db, user_id, track_id, paid_amount, reference, currency=currency
+            )
 
         elif payment_type == "artist_verification":
             user_id = metadata.get("user_id")
@@ -334,7 +384,9 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
 
             user = db.query(User).filter(User.id == user_id).first()
             if user:
-                granted = _grant_or_extend_verification(db, user, plan_key, paid_amount, reference)
+                granted = _grant_or_extend_verification(
+                    db, user, plan_key, paid_amount, reference, currency=currency
+                )
                 if not granted:
                     logger.warning(
                         f"webhook artist_verification rejected for user {user_id}: "
@@ -356,7 +408,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
 
 
 def _process_track_purchase(
-    db: Session, user_id: str, track_id: str, paid_amount_kobo: int, reference: str
+    db: Session, user_id: str, track_id: str, paid_amount_kobo: int, reference: str,
+    currency: str = "NGN",
 ) -> bool:
     """Record and credit one track purchase, safely handling retried webhooks."""
     # The local transaction is created before checkout. Locking it serializes
@@ -375,7 +428,8 @@ def _process_track_purchase(
         raise HTTPException(status_code=503, detail="Payment record is not ready; retry the webhook.")
 
     if (
-        txn.type != TransactionType.PURCHASE
+        currency != "NGN"
+        or txn.type != TransactionType.PURCHASE
         or txn.user_id != user_id
         or str(txn.track_id) != str(track_id)
         or round(float(txn.amount) * 100) != paid_amount_kobo
