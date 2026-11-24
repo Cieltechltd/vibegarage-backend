@@ -18,14 +18,14 @@ def initialize_payment(email: str, amount: float, track_id: str, reference: str)
         "metadata": {"track_id": track_id}
     }
     
-    response = requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers, timeout=15)
     return response.json()
 
 def verify_payment(reference: str):
     url = f"{PAYSTACK_BASE_URL}/transaction/verify/{reference}"
     headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
     
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=15)
     return response.json()
 
 
@@ -42,7 +42,7 @@ def create_transfer_recipient(name: str, account_number: str, bank_code: str) ->
         "bank_code": bank_code,
         "currency": "NGN"
     }
-    response = requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers, timeout=15)
     return response.json()
 
 
@@ -59,7 +59,7 @@ def initiate_transfer(amount_ngn: float, recipient_code: str, reason: str, refer
         "reason": reason,
         "reference": reference
     }
-    response = requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers, timeout=15)
     return response.json()
 
 
@@ -67,5 +67,5 @@ def list_banks(currency: str = "NGN") -> dict:
     url = f"{PAYSTACK_BASE_URL}/bank"
     headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
     params = {"currency": currency}
-    response = requests.get(url, headers=headers, params=params)
+    response = requests.get(url, headers=headers, params=params, timeout=15)
     return response.json()

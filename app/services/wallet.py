@@ -19,7 +19,9 @@ def get_available_balance(user_id: str, db: Session) -> float:
         db.query(func.sum(PayoutRequest.amount))
         .filter(
             PayoutRequest.user_id == user_id,
-            PayoutRequest.status.in_([PayoutStatus.COMPLETED, PayoutStatus.PENDING])
+            PayoutRequest.status.in_(
+                [PayoutStatus.COMPLETED, PayoutStatus.PENDING, PayoutStatus.APPROVED]
+            )
         )
         .scalar() or 0.0
     )

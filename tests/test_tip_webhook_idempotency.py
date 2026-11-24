@@ -27,6 +27,8 @@ supabase.create_client = lambda *_args, **_kwargs: None
 from app.models import album, follow, like, lyrics, payment, play, track as track_model  # noqa: F401
 from app.models.earning import EarningEntry
 from app.models.fanlink import FanLink
+from app.models.transaction import Transaction
+from app.models.transaction import TransactionType
 from app.models.user import User
 from app.routers.billing import _process_tip
 
@@ -58,6 +60,8 @@ class FakeQuery:
                 (entry for entry in self.db.earnings if entry.reference == reference),
                 None,
             )
+        if self.model is Transaction:
+            return self.db.transaction
         if self.model is FanLink:
             slug = self._filter_value("slug")
             return self.db.fanlink if self.db.fanlink.slug == slug else None
@@ -72,6 +76,7 @@ class FakeSession:
         self.artist = artist
         self.fanlink = fanlink
         self.earnings = []
+        self.transaction = None
         self.advisory_locks = []
         self.row_locks = 0
         self.commits = 0
@@ -84,6 +89,9 @@ class FakeSession:
 
     def add(self, entry):
         if not isinstance(entry, EarningEntry):
+            if isinstance(entry, Transaction):
+                self.transaction = entry
+                return
             raise AssertionError(f"Unexpected row: {entry}")
         self.earnings.append(entry)
 
@@ -138,6 +146,30 @@ class TipWebhookIdempotencyTests(unittest.TestCase):
         self.assertFalse(self._process(currency="USD"))
 
         self.assertEqual(self.db.advisory_locks, [])
+        self.assertEqual(self.artist.balance_ngn, 100.0)
+        self.assertEqual(self.db.earnings, [])
+
+    def test_local_tip_transaction_is_marked_successfully_once(self):
+        self.db.transaction = SimpleNamespace(
+            type=TransactionType.PURCHASE,
+            description="fanlink_tip:artist-link",
+            amount=1000.0,
+            status="pending",
+        )
+
+        self.assertTrue(self._process())
+        self.assertEqual(self.db.transaction.status, "success")
+        self.assertEqual(self.artist.balance_ngn, 950.0)
+
+    def test_tip_must_match_the_local_transaction_amount(self):
+        self.db.transaction = SimpleNamespace(
+            type=TransactionType.PURCHASE,
+            description="fanlink_tip:artist-link",
+            amount=999.0,
+            status="pending",
+        )
+
+        self.assertFalse(self._process())
         self.assertEqual(self.artist.balance_ngn, 100.0)
         self.assertEqual(self.db.earnings, [])
 

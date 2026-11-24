@@ -50,7 +50,7 @@ class FakeQuery:
         return sum(
             payout.amount
             for payout in self.db.payouts
-            if payout.status in (PayoutStatus.PENDING, PayoutStatus.COMPLETED)
+            if payout.status in (PayoutStatus.PENDING, PayoutStatus.APPROVED, PayoutStatus.COMPLETED)
         )
 
 
@@ -87,6 +87,18 @@ class PayoutReservationTests(unittest.TestCase):
         self.assertEqual(len(db.payouts), 1)
         self.assertEqual(db.user_row_locks, 2)
         self.assertEqual(db.commits, 1)
+
+    def test_in_flight_payout_keeps_balance_reserved(self):
+        user = SimpleNamespace(id="artist-1", balance_ngn=100.0)
+        db = FakeSession(user)
+        db.payouts.append(SimpleNamespace(amount=80.0, status=PayoutStatus.APPROVED))
+
+        with patch("app.services.wallet.calculate_artist_earnings", return_value=0.0):
+            payout, error = create_payout_request(user.id, 30.0, db)
+
+        self.assertIsNone(payout)
+        self.assertIn("Insufficient funds", error)
+        self.assertEqual(len(db.payouts), 1)
 
 
 if __name__ == "__main__":

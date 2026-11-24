@@ -315,13 +315,20 @@ def delete_clip_as_admin(clip_id: str, db: Session = Depends(get_db), admin: Use
 
 @router.get("/payouts/pending", response_model=list[PayoutResponse])
 def list_pending_payouts(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
-    return db.query(PayoutRequest).filter(PayoutRequest.status == PayoutStatus.PENDING).all()
+    return db.query(PayoutRequest).filter(
+        PayoutRequest.status.in_([PayoutStatus.PENDING, PayoutStatus.APPROVED])
+    ).all()
 
 @router.post("/payouts/{payout_id}/approve")
 def approve_payout(payout_id: str, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     
-    payout = db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
-    if not payout or payout.status != PayoutStatus.PENDING:
+    payout = (
+        db.query(PayoutRequest)
+        .filter(PayoutRequest.id == payout_id)
+        .with_for_update()
+        .first()
+    )
+    if not payout or payout.status not in {PayoutStatus.PENDING, PayoutStatus.APPROVED}:
         raise HTTPException(status_code=400, detail="Invalid payout request")
 
     settings_row = db.query(ArtistPaymentSettings).filter(
@@ -358,55 +365,72 @@ def approve_payout(payout_id: str, db: Session = Depends(get_db), admin: User = 
         settings_row.paystack_recipient_code = recipient_code
         db.commit()
 
-    transfer_reference = f"VG-PAYOUT-{uuid.uuid4().hex[:10].upper()}"
-    transfer_response = initiate_transfer(
-        amount_ngn=payout.amount,
-        recipient_code=recipient_code,
-        reason=f"VibeGarage payout for {payout.user_id}",
-        reference=transfer_reference
-    )
+    # Persist one Paystack reference before sending money. If the request
+    # times out, a retry reuses the same reference instead of creating another
+    # transfer. Paystack also recommends reusing the reference on retries.
+    if not payout.transfer_reference:
+        payout.transfer_reference = f"vg-payout-{uuid.uuid4()}"
+    transfer_reference = payout.transfer_reference
+    payout.transfer_status = payout.transfer_status or "initializing"
+    payout.status = PayoutStatus.APPROVED
+    db.commit()
+
+    try:
+        transfer_response = initiate_transfer(
+            amount_ngn=payout.amount,
+            recipient_code=recipient_code,
+            reason=f"VibeGarage payout for {payout.user_id}",
+            reference=transfer_reference,
+        )
+    except Exception as exc:
+        logger.exception("Payout %s transfer response was ambiguous", payout_id)
+        payout.transfer_status = "unknown"
+        db.commit()
+        raise HTTPException(
+            status_code=502,
+            detail="Transfer status is unknown. The same reference is saved; retry safely or wait for Paystack's webhook.",
+        ) from exc
 
     if not transfer_response.get("status"):
         logger.error(f"Payout {payout_id} transfer request failed: {transfer_response}")
+        payout.transfer_status = "unknown"
+        db.commit()
         raise HTTPException(
             status_code=502,
             detail=f"Paystack transfer failed: {transfer_response.get('message', 'Unknown error')}"
         )
 
     transfer_status = transfer_response.get("data", {}).get("status")
-
-    if transfer_status == "success":
-        payout.status = PayoutStatus.COMPLETED
+    db.refresh(payout)
+    if payout.status != PayoutStatus.COMPLETED:
+        payout.transfer_status = transfer_status or "unknown"
+        if transfer_status in {"failed", "reversed"}:
+            payout.status = PayoutStatus.PENDING
+        else:
+            payout.status = PayoutStatus.APPROVED
         log_admin_action(
             db, admin_id=admin.id, action="APPROVE_PAYOUT", target_id=payout_id,
-            details={"amount": payout.amount, "transfer_reference": transfer_reference, "recipient_code": recipient_code}
+            details={"amount": payout.amount, "transfer_reference": transfer_reference,
+                     "transfer_status": payout.transfer_status, "recipient_code": recipient_code}
         )
         db.commit()
-        return {"message": "Payout approved and transfer completed.", "transfer_reference": transfer_reference}
 
-    if transfer_status == "otp":
-        
-        logger.warning(
-            f"Payout {payout_id} transfer requires OTP finalization in the Paystack "
-            f"dashboard (reference {transfer_reference})."
-        )
-        return {
-            "message": (
-                "Transfer initiated but requires OTP confirmation in your Paystack dashboard "
-                "before it completes. This payout remains pending here until you finish it there."
-            ),
-            "status": "otp_required",
-            "transfer_reference": transfer_reference
-        }
+    if transfer_status in {"failed", "reversed"}:
+        raise HTTPException(status_code=502, detail=f"Transfer was not completed: {transfer_status}")
 
-    logger.error(f"Payout {payout_id} transfer returned unexpected status '{transfer_status}': {transfer_response}")
-    raise HTTPException(status_code=502, detail=f"Transfer returned an unexpected status: {transfer_status}")
+    return {
+        "message": "Transfer submitted. Final payout status will be set by Paystack's signed webhook.",
+        "status": payout.transfer_status,
+        "transfer_reference": transfer_reference,
+    }
 
 @router.post("/payouts/{payout_id}/reject")
 def reject_payout(payout_id: str, reason: str, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     payout = db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
     if not payout:
         raise HTTPException(status_code=404, detail="Payout not found")
+    if payout.status == PayoutStatus.APPROVED:
+        raise HTTPException(status_code=409, detail="An initiated transfer cannot be rejected while Paystack is processing it.")
     payout.status = PayoutStatus.REJECTED
     db.commit()
     return {"message": f"Payout rejected: {reason}"}

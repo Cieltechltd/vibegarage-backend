@@ -5,8 +5,10 @@ import hmac
 import hashlib
 import json
 import logging
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from datetime import datetime, timedelta
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.core.deps import get_current_user
@@ -17,6 +19,7 @@ from app.models.transaction import Transaction, TransactionType
 from app.models.purchase import Purchase
 from app.models.fanlink import FanLink
 from app.models.earning import EarningEntry
+from app.models.payout import PayoutRequest, PayoutStatus
 from app.services.revenue import apply_platform_fee_and_credit
 from dotenv import load_dotenv
 
@@ -40,6 +43,11 @@ VERIFICATION_PLANS = {
     "biannual":  {"label": "6 Months",               "amount_ngn": 36000, "duration_days": 182},
     "annual":    {"label": "Annual (12 Months)",     "amount_ngn": 60000, "duration_days": 365},
 }
+
+
+class TipCheckoutRequest(BaseModel):
+    email: EmailStr
+    amount_ngn: Decimal = Field(..., gt=0, max_digits=12, decimal_places=2)
 
 
 def verify_paystack_signature(payload: bytes, signature: str) -> bool:
@@ -129,6 +137,123 @@ def list_verification_plans():
         key: {"label": info["label"], "amount_ngn": info["amount_ngn"], "duration_days": info["duration_days"]}
         for key, info in VERIFICATION_PLANS.items()
     }
+
+
+@router.post("/fanlinks/{fanlink_slug}/tip/initialize")
+async def initialize_fanlink_tip(
+    fanlink_slug: str,
+    checkout: TipCheckoutRequest,
+    db: Session = Depends(get_db),
+):
+    """Start a public NGN tip checkout for an enabled artist fan link."""
+    fanlink = db.query(FanLink).filter(FanLink.slug == fanlink_slug).first()
+    if not fanlink or not fanlink.accept_tips:
+        raise HTTPException(status_code=404, detail="Tipping is unavailable for this fan link.")
+
+    amount_kobo = int((checkout.amount_ngn * 100).quantize(Decimal("1")))
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Tip amount must be at least NGN 0.01.")
+
+    reference = f"VG-TIP-{uuid.uuid4().hex[:16].upper()}"
+    transaction = Transaction(
+        id=uuid.uuid4(),
+        user_id=None,
+        amount=float(checkout.amount_ngn),
+        type=TransactionType.PURCHASE,
+        status="pending",
+        description=f"fanlink_tip:{fanlink_slug}",
+        reference=reference,
+    )
+    db.add(transaction)
+    db.commit()
+
+    url = "https://api.paystack.co/transaction/initialize"
+    headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
+    payload = {
+        "email": str(checkout.email),
+        "amount": amount_kobo,
+        "currency": "NGN",
+        "reference": reference,
+        "callback_url": (
+            f"{os.getenv('BASE_URL', 'https://vibegarage.app').rstrip('/')}/fanlinks/"
+            f"{fanlink_slug}?payment=tip&reference={reference}"
+        ),
+        "metadata": {
+            "type": "tip",
+            "artist_id": fanlink.artist_id,
+            "fanlink_slug": fanlink.slug,
+            "track_id": str(fanlink.track_id),
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        # Keep the reference pending because Paystack may have accepted the
+        # request before the connection failed; its webhook can still reconcile it.
+        logger.exception("Could not confirm Paystack tip initialization for %s", reference)
+        raise HTTPException(status_code=502, detail="Tip checkout could not be confirmed.") from exc
+
+    payment = data.get("data") or {}
+    if (
+        not data.get("status")
+        or payment.get("reference") != reference
+        or not payment.get("authorization_url")
+    ):
+        transaction.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=400, detail="Could not initialize tip checkout.")
+
+    return {
+        "checkout_url": payment["authorization_url"],
+        "reference": reference,
+        "amount_ngn": float(checkout.amount_ngn),
+        "currency": "NGN",
+    }
+
+
+@router.get("/fanlinks/{fanlink_slug}/tip/confirm/{reference}")
+async def confirm_fanlink_tip(
+    fanlink_slug: str,
+    reference: str,
+    db: Session = Depends(get_db),
+):
+    """Verify the tip with Paystack and credit the artist once."""
+    url = f"https://api.paystack.co/transaction/verify/{reference}"
+    headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.get(url, headers=headers)
+            result = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.exception("Could not verify tip %s with Paystack", reference)
+        raise HTTPException(status_code=502, detail="Could not verify tip right now.") from exc
+
+    payment = result.get("data") or {}
+    metadata = payment.get("metadata") or {}
+    if (
+        not result.get("status")
+        or payment.get("status") != "success"
+        or payment.get("reference") != reference
+        or payment.get("currency") != "NGN"
+        or metadata.get("type") != "tip"
+        or metadata.get("fanlink_slug") != fanlink_slug
+    ):
+        raise HTTPException(status_code=400, detail="Tip payment could not be confirmed.")
+
+    if not _process_tip(
+        db,
+        metadata.get("artist_id"),
+        fanlink_slug,
+        payment.get("amount"),
+        reference,
+        payment.get("currency"),
+    ):
+        raise HTTPException(status_code=400, detail="Tip payment does not match this fan link.")
+
+    return {"status": "success", "message": "Tip received. Thank you!", "reference": reference}
 
 
 @router.post("/verify-artist/initialize")
@@ -364,6 +489,11 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
     data = json.loads(payload)
     event = data.get("event")
 
+    if event in {"transfer.success", "transfer.failed", "transfer.reversed"}:
+        if not _process_transfer_event(db, event, data.get("data") or {}):
+            logger.warning("Paystack transfer event %s could not be matched to a payout", event)
+        return {"status": "success"}
+
     if event == "charge.success":
         reference = data["data"]["reference"]
         metadata = data["data"].get("metadata", {})
@@ -405,6 +535,38 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 )
 
     return {"status": "success"}
+
+
+def _process_transfer_event(db: Session, event: str, transfer: dict) -> bool:
+    """Apply a signed Paystack transfer result to its matching payout once."""
+    reference = transfer.get("reference")
+    amount_kobo = transfer.get("amount")
+    currency = transfer.get("currency")
+    if not reference or type(amount_kobo) is not int or currency != "NGN":
+        return False
+
+    payout = (
+        db.query(PayoutRequest)
+        .filter(PayoutRequest.transfer_reference == reference)
+        .with_for_update()
+        .first()
+    )
+    if not payout or round(float(payout.amount) * 100) != amount_kobo:
+        return False
+
+    if payout.status == PayoutStatus.COMPLETED and event != "transfer.reversed":
+        return True
+
+    payout.transfer_status = event.removeprefix("transfer.")
+    if event == "transfer.success":
+        payout.status = PayoutStatus.COMPLETED
+    elif event in {"transfer.failed", "transfer.reversed"}:
+        # Keep the request and its funds reserved so an admin can retry safely
+        # with the same Paystack reference after resolving the transfer issue.
+        payout.status = PayoutStatus.PENDING
+
+    db.commit()
+    return True
 
 
 def _process_track_purchase(
@@ -517,6 +679,24 @@ def _process_tip(
         logger.info("Tip %s already credited; skipping duplicate webhook delivery.", reference)
         return True
 
+    transaction = (
+        db.query(Transaction)
+        .filter(Transaction.reference == reference)
+        .with_for_update()
+        .first()
+    )
+    if transaction and (
+        transaction.type != TransactionType.PURCHASE
+        or transaction.description != f"fanlink_tip:{fanlink_slug}"
+        or round(float(transaction.amount) * 100) != paid_amount_kobo
+    ):
+        logger.warning("Tip payment does not match local transaction %s", reference)
+        return False
+    if transaction and transaction.status not in {"pending", "failed", "success"}:
+        return False
+    if transaction and transaction.status == "success":
+        return True
+
     fanlink = (
         db.query(FanLink)
         .filter(FanLink.slug == fanlink_slug)
@@ -538,5 +718,7 @@ def _process_tip(
         reference=reference,
         track_id=str(fanlink.track_id),
     )
+    if transaction:
+        transaction.status = "success"
     db.commit()
     return True

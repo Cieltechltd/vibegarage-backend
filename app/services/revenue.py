@@ -72,7 +72,7 @@ def get_earnings_summary(artist_id: str, db: Session) -> dict:
 
     pending_payouts = db.query(func.coalesce(func.sum(PayoutRequest.amount), 0.0)).filter(
         PayoutRequest.user_id == artist_id,
-        PayoutRequest.status == PayoutStatus.PENDING
+        PayoutRequest.status.in_([PayoutStatus.PENDING, PayoutStatus.APPROVED])
     ).scalar()
 
     recent_entries = (
