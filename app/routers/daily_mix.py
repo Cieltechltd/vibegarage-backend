@@ -1,5 +1,4 @@
-import os
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.deps import get_current_user
@@ -7,11 +6,9 @@ from app.models.user import User
 from app.models.purchase import Purchase as Library 
 from app.services.recommender import RecommenderService
 from app.schemas.track import TrackPublic
+from app.services.track_media import track_playback_url
 
 router = APIRouter(prefix="/daily-mix", tags=["Listener Discovery"])
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-BUCKET_NAME = "vibegarage"
 
 @router.get("/")
 def get_daily_mix(
@@ -29,12 +26,12 @@ def get_daily_mix(
         if current_user.id == track.artist_id:
             is_owned = True
 
-        show_preview = getattr(track, 'is_for_sale', False) and not is_owned
-
-        audio_url = track.audio_path
-        if show_preview:
-            base_filename = os.path.basename(track.audio_path)
-            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
+        has_full_access = is_owned or current_user.id == track.artist_id
+        show_preview = bool(track.is_for_sale and not has_full_access)
+        try:
+            audio_url = track_playback_url(track, can_play_full=has_full_access)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Track audio is temporarily unavailable.") from exc
 
         response_data.append({
             "id": track.id,

@@ -11,6 +11,7 @@ from app.models.track import Track
 from app.models.play import Play    
 from app.models.lyrics import Lyric
 from app.core.config import settings
+from app.services.track_media import catalog_audio_url
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
 logger = logging.getLogger("vibe-garage-discovery")
@@ -38,7 +39,7 @@ def get_trending_tracks(db: Session = Depends(get_db), limit: int = 10):
         {
             "id": str(track.id),
             "title": track.title,
-            "audio_path": track.audio_path,
+            "audio_path": catalog_audio_url(track),
             "cover_path": track.cover_path,
             "artist_name": artist.stage_name or artist.username,
             "trending_score": recent_plays
@@ -63,7 +64,7 @@ def get_new_releases(limit: int = 10, db: Session = Depends(get_db)):
             response_data.append({
                 "id": str(track.id),
                 "title": track.title,
-                "audio_path": track.audio_path,
+                "audio_path": catalog_audio_url(track),
                 "cover_path": track.cover_path,
                 "plays": track.plays,
                 "likes": track.likes,
@@ -145,7 +146,7 @@ def get_editor_picks(db: Session = Depends(get_db), limit: int = 10):
                 "track": {
                     "id": str(track.id),
                     "title": track.title,
-                    "audio_path": track.audio_path,
+                    "audio_path": catalog_audio_url(track),
                     "cover_path": track.cover_path,
                     "genre": track.genre,
                     "duration": track.duration,

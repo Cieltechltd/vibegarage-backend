@@ -11,6 +11,7 @@ from app.models.playlist import Playlist, PlaylistTrack
 from app.models.track import Track
 from app.models.purchase import Purchase as Library 
 from app.core.config import settings
+from app.services.track_media import track_playback_url
 
 router = APIRouter(prefix="/playlists", tags=["Playlists"])
 
@@ -48,15 +49,19 @@ def get_my_favorites(db: Session = Depends(get_db), current_user: User = Depends
         
         artist_name = artist.stage_name or artist.username or "Unknown Artist"
         is_verified = getattr(artist, 'is_verified_artist', False)
-        audio_url = getattr(track, 'audio_path', '') 
+        has_full_access = is_owned or track.artist_id == current_user.id
+        try:
+            audio_url = track_playback_url(track, can_play_full=has_full_access)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Track audio is temporarily unavailable.") from exc
 
         playlist_content.append({
             "id": str(track.id),
             "title": track.title,
             "artist": artist_name,
             "is_verified": is_verified,
-            "audio_url": track.file_url if (hasattr(track, 'file_url') and is_owned) else audio_url,
-            "is_preview": not is_owned
+            "audio_url": audio_url,
+            "is_preview": bool(track.is_for_sale and not has_full_access)
         })
 
     return {
@@ -173,15 +178,19 @@ def get_playlist_details(
 
         artist_name = artist.stage_name or artist.username or "Unknown Artist"
         is_verified = getattr(artist, 'is_verified_artist', False)
-        audio_url = getattr(track, 'audio_path', '')
+        has_full_access = is_owned or track.artist_id == current_user.id
+        try:
+            audio_url = track_playback_url(track, can_play_full=has_full_access)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Track audio is temporarily unavailable.") from exc
 
         playlist_content.append({
             "id": str(track.id),
             "title": track.title,
             "artist": artist_name,
             "is_verified": is_verified,
-            "audio_url": track.file_url if (hasattr(track, 'file_url') and is_owned) else audio_url,
-            "is_preview": not is_owned
+            "audio_url": audio_url,
+            "is_preview": bool(track.is_for_sale and not has_full_access)
         })
 
     return {
