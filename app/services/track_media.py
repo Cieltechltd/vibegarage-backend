@@ -18,6 +18,7 @@ PAID_AUDIO_BUCKET = os.getenv("SUPABASE_PAID_AUDIO_BUCKET", "vibegarage-paid-aud
 PRIVATE_AUDIO_PREFIX = "private://"
 PREVIEW_LENGTH_MS = 15_000
 SIGNED_AUDIO_URL_TTL_SECONDS = 300
+MAX_AUDIO_UPLOAD_BYTES = 50 * 1024 * 1024
 ALLOWED_AUDIO_TYPES = {
     "audio/mpeg",
     "audio/mp3",
@@ -35,6 +36,10 @@ AUDIO_TYPE_SUFFIXES = {
     "audio/ogg": ".ogg",
 }
 logger = logging.getLogger(__name__)
+
+
+class AudioUploadTooLarge(ValueError):
+    """Raised when an uploaded audio file exceeds the shared size limit."""
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Supabase credentials missing from environment variables.")
@@ -110,12 +115,21 @@ def _make_preview(audio_bytes: bytes) -> bytes:
 
 def validate_audio_upload(audio_bytes: bytes, content_type: str | None) -> str:
     """Validate audio uploads consistently and return the normalized MIME type."""
+    if len(audio_bytes) > MAX_AUDIO_UPLOAD_BYTES:
+        raise AudioUploadTooLarge("Audio file exceeds the 50 MB limit. Choose a smaller file.")
     normalized_type = (content_type or "").split(";", 1)[0].strip().lower()
     if normalized_type not in ALLOWED_AUDIO_TYPES:
         raise ValueError("Unsupported audio format. Upload an MP3, WAV, FLAC, or OGG file.")
     if not audio_bytes:
         raise ValueError("The audio file is empty. Choose a non-empty audio file and try again.")
     return normalized_type
+
+
+async def read_audio_upload(upload_file) -> tuple[bytes, str]:
+    """Read at most one byte over the limit, then validate before storage."""
+    audio_bytes = await upload_file.read(MAX_AUDIO_UPLOAD_BYTES + 1)
+    content_type = validate_audio_upload(audio_bytes, upload_file.content_type)
+    return audio_bytes, content_type
 
 
 def _audio_suffix(filename: str | None, content_type: str) -> str:
