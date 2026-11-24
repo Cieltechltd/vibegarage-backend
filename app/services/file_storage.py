@@ -83,7 +83,6 @@ import io
 import asyncio
 from fastapi import UploadFile
 from app.core.config import settings 
-from pydub import AudioSegment  
 from supabase import create_client, Client
 
 supabase_url = settings.SUPABASE_URL
@@ -94,29 +93,24 @@ BASE_DIR = "app/uploads"
 BUCKET_NAME = "vibegarage"
 
 async def save_file(file: UploadFile, folder: str) -> str:
-    target_folder = os.path.join(BASE_DIR, folder)
-    os.makedirs(target_folder, exist_ok=True)
-
     filename = f"{uuid.uuid4()}_{file.filename}"
-    file_path = os.path.join(target_folder, filename)
 
     await file.seek(0)
     file_content = await file.read()
 
-    with open(file_path, "wb") as buffer:
-        buffer.write(file_content)
-
     supabase_destination_path = f"app/uploads/{folder}/{filename}"
-    
+
     try:
-        supabase.storage.from_(BUCKET_NAME).upload(
+        await asyncio.to_thread(
+            supabase.storage.from_(BUCKET_NAME).upload,
             path=supabase_destination_path,
             file=file_content,
-            file_options={"content-type": file.content_type}
+            file_options={"content-type": file.content_type},
         )
-    except Exception as e:
-        print(f"Supabase Storage Upload Failed for {filename}: {e}")
-        
+
+    except Exception as exc:
+        raise RuntimeError("Cloud asset storage upload failed.") from exc
+
     if folder == "audio":
         asyncio.create_task(
             asyncio.to_thread(generate_preview, file_content, filename)
@@ -125,6 +119,8 @@ async def save_file(file: UploadFile, folder: str) -> str:
 
 
 def generate_preview(audio_bytes: bytes, original_filename: str):
+    from pydub import AudioSegment
+
     preview_dir = os.path.join(BASE_DIR, "previews")
     os.makedirs(preview_dir, exist_ok=True)
 

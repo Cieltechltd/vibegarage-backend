@@ -186,4 +186,7 @@ def track_playback_url(track: Any, can_play_full: bool) -> str:
         except (ValueError, RuntimeError, KeyError) as exc:
             raise RuntimeError("Track audio is not available in storage.") from exc
 
-    return public_audio_url(reference) or ""
+    audio_url = public_audio_url(reference)
+    if not audio_url:
+        raise RuntimeError("Track audio is not available in storage.")
+    return audio_url

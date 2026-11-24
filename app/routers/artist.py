@@ -97,7 +97,13 @@ async def upload_track(
     audio_path = await upload_track_audio(
         await audio.read(), audio.filename, audio.content_type, track_id, is_paid=is_for_sale
     )
-    cover_path = await save_file(cover, "covers") if cover else None
+    try:
+        cover_path = await save_file(cover, "covers") if cover else None
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Cover image storage is temporarily unavailable. Please try again.",
+        ) from exc
 
     track = Track(
         id=track_id,
