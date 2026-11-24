@@ -113,6 +113,18 @@ class AudioUploadRouteTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(raised.exception.status_code, 400)
                 self.assertEqual(raised.exception.detail, expected)
 
+    async def test_all_upload_routes_reject_non_audio_content_with_audio_mime_type(self):
+        expected = (
+            "File contents do not match the selected audio format. "
+            "Upload a valid MP3, WAV, FLAC, or OGG file."
+        )
+        for route_name in ("track", "artist", "album"):
+            with self.subTest(route=route_name):
+                with self.assertRaises(HTTPException) as raised:
+                    await self._invoke_route(route_name, "audio/mpeg", b"not actually an audio file")
+                self.assertEqual(raised.exception.status_code, 400)
+                self.assertEqual(raised.exception.detail, expected)
+
     async def test_all_upload_routes_enforce_the_shared_audio_size_limit(self):
         expected = "Audio file exceeds the 50 MB limit. Choose a smaller file."
         with patch.object(track_media, "MAX_AUDIO_UPLOAD_BYTES", 8):

@@ -22,8 +22,12 @@ except ModuleNotFoundError:
     supabase_stub.create_client = lambda *_args, **_kwargs: None
     sys.modules["supabase"] = supabase_stub
 
-from app.services import track_media
+with patch.object(supabase, "create_client", return_value=None):
+    from app.services import track_media
 from app.schemas.track import TrackOut
+
+
+VALID_WAV_HEADER = b"RIFF\x00\x00\x00\x00WAVE"
 
 
 class FakeBucket:
@@ -51,11 +55,30 @@ class FakeStorage:
 
 
 class TrackMediaAccessTests(unittest.IsolatedAsyncioTestCase):
+    def test_audio_validation_requires_matching_container_signature(self):
+        examples = {
+            "audio/mpeg": b"ID3\x04\x00\x00\x00\x00\x00\x00",
+            "audio/mp3": b"\xff\xfb\x90\x64",
+            "audio/wav": b"RIFF\x00\x00\x00\x00WAVE",
+            "audio/x-wav": b"RIFF\x00\x00\x00\x00WAVE",
+            "audio/flac": b"fLaC\x00\x00",
+            "audio/ogg": b"OggS\x00\x02",
+        }
+        for content_type, audio_bytes in examples.items():
+            with self.subTest(content_type=content_type):
+                self.assertEqual(
+                    track_media.validate_audio_upload(audio_bytes, content_type),
+                    content_type,
+                )
+
+        with self.assertRaisesRegex(ValueError, "contents do not match"):
+            track_media.validate_audio_upload(b"RIFF\x00\x00\x00\x00WAVE", "audio/mpeg")
+
     async def test_audio_upload_accepts_mime_parameters_and_canonicalizes_extension(self):
         storage = FakeStorage()
         with patch.object(track_media, "supabase_client", SimpleNamespace(storage=storage)):
             reference = await track_media.upload_track_audio(
-                b"audio-bytes", "song.exe", " Audio/WAV; charset=binary ", "track-mime", is_paid=False
+                VALID_WAV_HEADER, "song.exe", " Audio/WAV; charset=binary ", "track-mime", is_paid=False
             )
 
         self.assertTrue(reference.endswith("/audio/track-mime.wav"))
@@ -67,7 +90,7 @@ class TrackMediaAccessTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(track_media, "supabase_client", SimpleNamespace(storage=storage)):
             with self.assertRaisesRegex(ValueError, "Unsupported audio format"):
                 await track_media.upload_track_audio(
-                    b"audio-bytes", "song.mp4", "video/mp4", "track-bad-type", is_paid=False
+                    VALID_WAV_HEADER, "song.mp4", "video/mp4", "track-bad-type", is_paid=False
                 )
 
         self.assertEqual(storage.calls, [])
@@ -89,7 +112,7 @@ class TrackMediaAccessTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(track_media, "_upload_object", side_effect=fail_upload):
             with self.assertRaisesRegex(RuntimeError, "Audio storage is temporarily unavailable"):
                 await track_media.upload_track_audio(
-                    b"audio-bytes", "song.mp3", "audio/mpeg", "track-storage", is_paid=False
+                    b"ID3\x04\x00\x00\x00\x00\x00\x00", "song.mp3", "audio/mpeg", "track-storage", is_paid=False
                 )
 
     async def test_audio_cleanup_removes_paid_original_and_public_preview(self):
@@ -115,7 +138,7 @@ class TrackMediaAccessTests(unittest.IsolatedAsyncioTestCase):
             patch.object(track_media, "_make_preview", return_value=b"preview-audio"),
         ):
             audio_reference = await track_media.upload_track_audio(
-                b"full-audio", "song.wav", "audio/wav", "track-1", is_paid=True
+                VALID_WAV_HEADER, "song.wav", "audio/wav", "track-1", is_paid=True
             )
 
         self.assertEqual(

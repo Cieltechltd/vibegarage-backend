@@ -121,6 +121,7 @@ vary by route; inspect the live OpenAPI form in `/docs` before implementation.
 | POST | `/billing/verify-artist/initialize` | Start verification payment. |
 | GET | `/billing/verify-artist/confirm/{reference}` | Confirm a verification transaction. |
 | POST | `/billing/buy-track/{track_id}` | Start paid-track purchase. |
+| GET | `/billing/buy-track/confirm/{reference}` | Verify a successful purchase with Paystack and add it to the signed-in listener's library. |
 | POST | `/billing/webhook` | Paystack webhook receiver; do not call from the client. |
 | GET | `/payouts/banks` | Supported bank list. |
 | POST | `/payouts/settings` | Save artist payment settings. |

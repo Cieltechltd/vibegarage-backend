@@ -121,6 +121,33 @@ class VerificationPaymentIdempotencyTests(unittest.TestCase):
         self.assertEqual(transaction.status, "pending")
         self.assertEqual(db.commits, 0)
 
+    def test_non_ngn_payment_does_not_grant_verification(self):
+        user = SimpleNamespace(
+            id="artist-1",
+            subscription_expiry=None,
+            is_verified_artist=False,
+            verification_fee_paid=False,
+            verified_at=None,
+        )
+        transaction = SimpleNamespace(
+            reference="VG-VER-REFERENCE",
+            user_id=user.id,
+            type=TransactionType.PURCHASE,
+            description="artist_verification:monthly",
+            amount=7000,
+            status="pending",
+        )
+        db = FakeSession(user, transaction)
+
+        self.assertFalse(
+            _grant_or_extend_verification(
+                db, user, "monthly", 700000, transaction.reference, currency="USD"
+            )
+        )
+        self.assertIsNone(user.subscription_expiry)
+        self.assertEqual(transaction.status, "pending")
+        self.assertEqual(db.commits, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
