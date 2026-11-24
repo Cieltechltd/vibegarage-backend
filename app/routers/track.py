@@ -20,7 +20,13 @@ from app.models.track import Track
 from app.models.user import User
 from app.routers.admin import is_feature_enabled
 from app.schemas.track import PublicTrackOut
-from app.services.track_media import catalog_audio_url, track_playback_url, upload_track_audio
+from app.services.track_media import (
+    catalog_audio_url,
+    delete_track_audio,
+    track_playback_url,
+    upload_track_audio,
+    validate_audio_upload,
+)
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
 logger = logging.getLogger("vibe-garage-tracks")
@@ -34,7 +40,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "vibegarage"
 
-ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/flac", "audio/ogg"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 def format_public_track(track: Track, artist_user: User, db: Session, current_user: Optional[User] = None) -> dict:
@@ -98,31 +103,33 @@ async def upload_track(
             detail="You must upgrade to an Artist account to upload tracks."
         )
 
-    # Validate Audio Content Type
-    if audio.content_type not in ALLOWED_AUDIO_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid audio format: {audio.content_type}. Allowed formats: MP3, WAV, FLAC, OGG."
-        )
-
     if cover and cover.content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid image format: {cover.content_type}. Allowed formats: JPEG, PNG, WEBP."
         )
 
+    unique_id = str(uuid.uuid4())
+    audio_data = await audio.read()
     try:
-        unique_id = str(uuid.uuid4())
-        audio_data = await audio.read()
-        audio_path_url = await upload_track_audio(
-            audio_data,
-            audio.filename,
-            audio.content_type,
-            unique_id,
-            is_paid=is_for_sale,
-        )
+        validate_audio_upload(audio_data, audio.content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-        cover_path_url = ""
+    try:
+        audio_path_url = await upload_track_audio(
+            audio_data, audio.filename, audio.content_type, unique_id, is_paid=is_for_sale
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Audio storage is temporarily unavailable. Please try again.",
+        ) from exc
+
+    cover_path_url = ""
+    try:
         if cover:
             cover_ext = os.path.splitext(cover.filename)[1] or ".jpg"
             cover_filename = f"covers/{unique_id}{cover_ext}"
@@ -134,7 +141,14 @@ async def upload_track(
                 file_options={"content-type": cover.content_type}
             )
             cover_path_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{cover_filename}"
+    except Exception as exc:
+        await delete_track_audio(unique_id, audio.filename, audio.content_type, is_for_sale)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media storage is temporarily unavailable. Please try again.",
+        ) from exc
 
+    try:
         track = Track(
             id=unique_id, 
             title=title,
@@ -151,16 +165,17 @@ async def upload_track(
         db.add(track)
         db.commit()
         db.refresh(track)
-        
-        return format_public_track(track, current_user, db, current_user)
 
     except Exception as e:
         db.rollback()
+        await delete_track_audio(unique_id, audio.filename, audio.content_type, is_for_sale)
         logger.error(f"Upload failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Cloud asset storage upload failed: {str(e)}"
-        )
+            detail="Track upload failed. Please try again.",
+        ) from e
+
+    return format_public_track(track, current_user, db, current_user)
 
 
 @router.post("/stream/{track_id}")

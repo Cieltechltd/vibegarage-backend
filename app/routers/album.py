@@ -6,7 +6,12 @@ from app.models.album import Album
 from app.models.track import Track
 from app.models.user import User
 from app.schemas.album import AlbumOut, AlbumPublic
-from app.services.track_media import catalog_audio_url, upload_track_audio
+from app.services.track_media import (
+    catalog_audio_url,
+    delete_track_audio,
+    upload_track_audio,
+    validate_audio_upload,
+)
 from app.core.deps import get_current_user
 from supabase import create_client, Client
 import uuid
@@ -47,16 +52,23 @@ async def upload_track_to_album(
 
     track_id = str(uuid.uuid4())
     is_paid = price > 0.0
+    audio_bytes = await audio_file.read()
+    try:
+        validate_audio_upload(audio_bytes, audio_file.content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     try:
         audio_url = await upload_track_audio(
-            await audio_file.read(),
-            audio_file.filename,
-            audio_file.content_type,
-            track_id,
-            is_paid=is_paid,
+            audio_bytes, audio_file.filename, audio_file.content_type, track_id, is_paid=is_paid
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload audio file: {str(e)}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Audio storage is temporarily unavailable. Please try again.",
+        ) from exc
 
     
     new_track = Track(
@@ -72,9 +84,14 @@ async def upload_track_to_album(
         price=price
     )
     
-    db.add(new_track)
-    db.commit()
-    db.refresh(new_track)
+    try:
+        db.add(new_track)
+        db.commit()
+        db.refresh(new_track)
+    except Exception as exc:
+        db.rollback()
+        await delete_track_audio(track_id, audio_file.filename, audio_file.content_type, is_paid)
+        raise HTTPException(status_code=500, detail="Track upload failed. Please try again.") from exc
 
     return {
         "status": "success",
