@@ -7,10 +7,11 @@ from app.models.track import Track
 from app.models.user import User
 from app.schemas.album import AlbumOut, AlbumPublic
 from app.services.track_media import (
+    AudioUploadTooLarge,
     catalog_audio_url,
     delete_track_audio,
+    read_audio_upload,
     upload_track_audio,
-    validate_audio_upload,
 )
 from app.core.deps import get_current_user
 from supabase import create_client, Client
@@ -52,9 +53,10 @@ async def upload_track_to_album(
 
     track_id = str(uuid.uuid4())
     is_paid = price > 0.0
-    audio_bytes = await audio_file.read()
     try:
-        validate_audio_upload(audio_bytes, audio_file.content_type)
+        audio_bytes, _ = await read_audio_upload(audio_file)
+    except AudioUploadTooLarge as exc:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

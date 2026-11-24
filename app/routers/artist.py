@@ -2,7 +2,7 @@ import uuid
 import os
 import shutil
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional, List
@@ -15,10 +15,11 @@ from app.models.follow import Follow
 from app.core.config import settings 
 from app.services.file_storage import save_file 
 from app.services.track_media import (
+    AudioUploadTooLarge,
     catalog_audio_url,
     delete_track_audio,
+    read_audio_upload,
     upload_track_audio,
-    validate_audio_upload,
 )
 from app.schemas.artist import (
     ArtistStatsOut, \
@@ -99,9 +100,10 @@ async def upload_track(
         raise HTTPException(status_code=403, detail="Artist role required for uploads")
 
     track_id = str(uuid.uuid4())
-    audio_bytes = await audio.read()
     try:
-        validate_audio_upload(audio_bytes, audio.content_type)
+        audio_bytes, _ = await read_audio_upload(audio)
+    except AudioUploadTooLarge as exc:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -21,11 +21,12 @@ from app.models.user import User
 from app.routers.admin import is_feature_enabled
 from app.schemas.track import PublicTrackOut
 from app.services.track_media import (
+    AudioUploadTooLarge,
     catalog_audio_url,
     delete_track_audio,
+    read_audio_upload,
     track_playback_url,
     upload_track_audio,
-    validate_audio_upload,
 )
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
@@ -110,9 +111,10 @@ async def upload_track(
         )
 
     unique_id = str(uuid.uuid4())
-    audio_data = await audio.read()
     try:
-        validate_audio_upload(audio_data, audio.content_type)
+        audio_data, _ = await read_audio_upload(audio)
+    except AudioUploadTooLarge as exc:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
