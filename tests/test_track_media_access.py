@@ -118,6 +118,12 @@ class TrackMediaAccessTests(unittest.IsolatedAsyncioTestCase):
             track.audio_path,
         )
 
+    def test_free_track_without_audio_is_unavailable(self):
+        track = SimpleNamespace(id="track-7", is_for_sale=False, audio_path=None)
+
+        with self.assertRaisesRegex(RuntimeError, "Track audio is not available"):
+            track_media.track_playback_url(track, can_play_full=False)
+
     def test_paid_track_schema_uses_preview_instead_of_private_reference(self):
         track = TrackOut(
             id="track-6",

@@ -77,6 +77,7 @@ class StreamDB:
         self.purchase = purchase
         self.query_calls = []
         self.track_queries = 0
+        self.added = []
 
     def query(self, model):
         self.query_calls.append(model)
@@ -91,8 +92,8 @@ class StreamDB:
             return RecordingQuery(first=None)
         raise AssertionError(f"Unexpected database query: {model!r}")
 
-    def add(self, _item):
-        pass
+    def add(self, item):
+        self.added.append(item)
 
     def commit(self):
         pass
@@ -160,6 +161,27 @@ class TrackStreamAccessTests(unittest.TestCase):
         self.assertFalse(response["is_preview"])
         playback_url.assert_called_once_with(self.track, can_play_full=True)
         self.assertNotIn(Purchase, db.query_calls)
+
+    def test_free_track_without_audio_returns_unavailable_without_counting_play(self):
+        self.track.is_for_sale = False
+        self.track.audio_path = None
+        db = StreamDB(self.track, self.artist)
+
+        with (
+            patch.object(
+                track_router,
+                "track_playback_url",
+                side_effect=RuntimeError("Track audio is not available in storage."),
+            ),
+            patch.object(track_router, "Play", FakePlay),
+        ):
+            with self.assertRaises(track_router.HTTPException) as raised:
+                track_router.stream_track(
+                    "paid-track-1", db=db, current_user=None
+                )
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(db.added, [])
 
 
 if __name__ == "__main__":
