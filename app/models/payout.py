@@ -17,4 +17,6 @@ class PayoutRequest(Base):
     amount = Column(Float, nullable=False)
     currency = Column(String, default="NGN") 
     status = Column(Enum(PayoutStatus), default=PayoutStatus.PENDING)
+    transfer_reference = Column(String, unique=True, index=True, nullable=True)
+    transfer_status = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

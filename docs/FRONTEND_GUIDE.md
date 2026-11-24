@@ -95,6 +95,13 @@ Use `POST /billing/buy-track/{track_id}` to initialize payment. Redirect the
 user using the authorization URL supplied by the payment response. When
 Paystack returns the buyer to the purchase success page, call
 `GET /billing/buy-track/confirm/{reference}` with the signed-in user's token.
+
+For an enabled public FanLink, post the tipper's email and NGN amount to
+`POST /billing/fanlinks/{slug}/tip/initialize`, then redirect to the returned
+`checkout_url`. On return, call
+`GET /billing/fanlinks/{slug}/tip/confirm/{reference}` to show the verified
+result. The Paystack webhook also records successful tips if the listener
+closes the browser before returning.
 The backend verifies the payment directly with Paystack and adds the track to
 the library once. The webhook remains enabled if the buyer closes the page
 before returning.

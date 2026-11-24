@@ -122,10 +122,16 @@ vary by route; inspect the live OpenAPI form in `/docs` before implementation.
 | GET | `/billing/verify-artist/confirm/{reference}` | Confirm a verification transaction. |
 | POST | `/billing/buy-track/{track_id}` | Start paid-track purchase. |
 | GET | `/billing/buy-track/confirm/{reference}` | Verify a successful purchase with Paystack and add it to the signed-in listener's library. |
+| POST | `/billing/fanlinks/{fanlink_slug}/tip/initialize` | Start a public NGN tip checkout for a fan link with tipping enabled. Body: `{ "email": "fan@example.com", "amount_ngn": 100 }`. |
+| GET | `/billing/fanlinks/{fanlink_slug}/tip/confirm/{reference}` | Verify a tip with Paystack and credit the artist once. |
 | POST | `/billing/webhook` | Paystack webhook receiver; do not call from the client. |
 | GET | `/payouts/banks` | Supported bank list. |
 | POST | `/payouts/settings` | Save artist payment settings. |
 | POST | `/payouts/request` | Request a payout. |
+
+Payout responses include `transfer_status`. Admin approval starts or retries
+the saved Paystack transfer reference; the payout remains reserved until a
+signed `transfer.success` webhook confirms completion.
 
 ## Fan links and blog
 

@@ -27,6 +27,7 @@ class PayoutResponse(BaseModel):
     amount: float
     currency: str
     status: PayoutStatus
+    transfer_status: Optional[str] = None
     created_at: datetime
 
     class Config:
