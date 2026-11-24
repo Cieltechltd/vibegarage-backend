@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import logging
 import os
 import uuid
 from pathlib import PurePosixPath
@@ -17,6 +18,23 @@ PAID_AUDIO_BUCKET = os.getenv("SUPABASE_PAID_AUDIO_BUCKET", "vibegarage-paid-aud
 PRIVATE_AUDIO_PREFIX = "private://"
 PREVIEW_LENGTH_MS = 15_000
 SIGNED_AUDIO_URL_TTL_SECONDS = 300
+ALLOWED_AUDIO_TYPES = {
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/flac",
+    "audio/ogg",
+}
+AUDIO_TYPE_SUFFIXES = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/flac": ".flac",
+    "audio/ogg": ".ogg",
+}
+logger = logging.getLogger(__name__)
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Supabase credentials missing from environment variables.")
@@ -90,6 +108,24 @@ def _make_preview(audio_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
+def validate_audio_upload(audio_bytes: bytes, content_type: str | None) -> str:
+    """Validate audio uploads consistently and return the normalized MIME type."""
+    normalized_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if normalized_type not in ALLOWED_AUDIO_TYPES:
+        raise ValueError("Unsupported audio format. Upload an MP3, WAV, FLAC, or OGG file.")
+    if not audio_bytes:
+        raise ValueError("The audio file is empty. Choose a non-empty audio file and try again.")
+    return normalized_type
+
+
+def _audio_suffix(filename: str | None, content_type: str) -> str:
+    suffix = os.path.splitext(filename or "")[1].lower()
+    allowed_suffix = AUDIO_TYPE_SUFFIXES[content_type]
+    if suffix != allowed_suffix:
+        return allowed_suffix
+    return suffix
+
+
 def _upload_object(bucket: str, path: str, data: bytes, content_type: str) -> None:
     supabase_client.storage.from_(bucket).upload(
         path=path,
@@ -101,7 +137,7 @@ def _upload_object(bucket: str, path: str, data: bytes, content_type: str) -> No
 async def upload_track_audio(
     audio_bytes: bytes,
     filename: str | None,
-    content_type: str,
+    content_type: str | None,
     track_id: str,
     is_paid: bool,
 ) -> str:
@@ -110,25 +146,32 @@ async def upload_track_audio(
     Paid originals go only to the private bucket. Their public preview is
     written first; if either operation fails, the upload fails closed.
     """
-    suffix = os.path.splitext(filename or "")[1].lower()
-    if not suffix or len(suffix) > 10 or not suffix[1:].isalnum():
-        suffix = ".mp3"
+    normalized_type = validate_audio_upload(audio_bytes, content_type)
+    suffix = _audio_suffix(filename, normalized_type)
 
     object_path = f"audio/{track_id}{suffix}"
     bucket = PAID_AUDIO_BUCKET if is_paid else PUBLIC_MEDIA_BUCKET
     preview_path = preview_object_path(track_id)
 
     if is_paid:
-        preview_bytes = await asyncio.to_thread(_make_preview, audio_bytes)
-        await asyncio.to_thread(
-            _upload_object, PUBLIC_MEDIA_BUCKET, preview_path, preview_bytes, "audio/mpeg"
-        )
+        try:
+            preview_bytes = await asyncio.to_thread(_make_preview, audio_bytes)
+        except Exception as exc:
+            raise ValueError(
+                "The audio file could not be read. Upload a valid MP3, WAV, FLAC, or OGG file."
+            ) from exc
+        try:
+            await asyncio.to_thread(
+                _upload_object, PUBLIC_MEDIA_BUCKET, preview_path, preview_bytes, "audio/mpeg"
+            )
+        except Exception as exc:
+            raise RuntimeError("Audio storage is temporarily unavailable.") from exc
 
     try:
         await asyncio.to_thread(
-            _upload_object, bucket, object_path, audio_bytes, content_type
+            _upload_object, bucket, object_path, audio_bytes, normalized_type
         )
-    except Exception:
+    except Exception as exc:
         if is_paid:
             try:
                 await asyncio.to_thread(
@@ -137,11 +180,42 @@ async def upload_track_audio(
                 )
             except Exception:
                 pass
-        raise
+        raise RuntimeError("Audio storage is temporarily unavailable.") from exc
 
     if is_paid:
         return private_audio_reference(object_path)
     return public_audio_url(object_path) or ""
+
+
+async def delete_track_audio(
+    track_id: str,
+    filename: str | None,
+    content_type: str | None,
+    is_paid: bool,
+) -> None:
+    """Best-effort removal of audio objects when a track record cannot be saved."""
+    normalized_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if normalized_type not in AUDIO_TYPE_SUFFIXES:
+        logger.warning("Could not determine audio type while cleaning track %s", track_id)
+        return
+
+    object_path = f"audio/{track_id}{_audio_suffix(filename, normalized_type)}"
+    bucket = PAID_AUDIO_BUCKET if is_paid else PUBLIC_MEDIA_BUCKET
+    try:
+        await asyncio.to_thread(
+            supabase_client.storage.from_(bucket).remove, [object_path]
+        )
+    except Exception:
+        logger.exception("Could not remove uploaded audio for track %s", track_id)
+
+    if is_paid:
+        try:
+            await asyncio.to_thread(
+                supabase_client.storage.from_(PUBLIC_MEDIA_BUCKET).remove,
+                [preview_object_path(track_id)],
+            )
+        except Exception:
+            logger.exception("Could not remove uploaded preview for track %s", track_id)
 
 
 def _signed_private_audio_url(reference: str) -> str:
