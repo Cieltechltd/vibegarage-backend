@@ -14,7 +14,12 @@ from app.models.clip import GarageClip
 from app.models.follow import Follow
 from app.core.config import settings 
 from app.services.file_storage import save_file 
-from app.services.track_media import catalog_audio_url, upload_track_audio
+from app.services.track_media import (
+    catalog_audio_url,
+    delete_track_audio,
+    upload_track_audio,
+    validate_audio_upload,
+)
 from app.schemas.artist import (
     ArtistStatsOut, \
     FullArtistProfileResponse
@@ -94,15 +99,31 @@ async def upload_track(
         raise HTTPException(status_code=403, detail="Artist role required for uploads")
 
     track_id = str(uuid.uuid4())
-    audio_path = await upload_track_audio(
-        await audio.read(), audio.filename, audio.content_type, track_id, is_paid=is_for_sale
-    )
+    audio_bytes = await audio.read()
     try:
-        cover_path = await save_file(cover, "covers") if cover else None
+        validate_audio_upload(audio_bytes, audio.content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        audio_path = await upload_track_audio(
+            audio_bytes, audio.filename, audio.content_type, track_id, is_paid=is_for_sale
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
-            detail="Cover image storage is temporarily unavailable. Please try again.",
+            detail="Audio storage is temporarily unavailable. Please try again.",
+        ) from exc
+
+    try:
+        cover_path = await save_file(cover, "covers") if cover else None
+    except RuntimeError as exc:
+        await delete_track_audio(track_id, audio.filename, audio.content_type, is_for_sale)
+        raise HTTPException(
+            status_code=503,
+            detail="Media storage is temporarily unavailable. Please try again.",
         ) from exc
 
     track = Track(
@@ -115,9 +136,14 @@ async def upload_track(
         is_for_sale=is_for_sale 
     )
 
-    db.add(track)
-    db.commit()
-    db.refresh(track)
+    try:
+        db.add(track)
+        db.commit()
+        db.refresh(track)
+    except Exception as exc:
+        db.rollback()
+        await delete_track_audio(track_id, audio.filename, audio.content_type, is_for_sale)
+        raise HTTPException(status_code=500, detail="Track upload failed. Please try again.") from exc
 
     return {
         "id": str(track.id), 

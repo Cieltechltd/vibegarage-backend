@@ -51,6 +51,63 @@ class FakeStorage:
 
 
 class TrackMediaAccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_audio_upload_accepts_mime_parameters_and_canonicalizes_extension(self):
+        storage = FakeStorage()
+        with patch.object(track_media, "supabase_client", SimpleNamespace(storage=storage)):
+            reference = await track_media.upload_track_audio(
+                b"audio-bytes", "song.exe", " Audio/WAV; charset=binary ", "track-mime", is_paid=False
+            )
+
+        self.assertTrue(reference.endswith("/audio/track-mime.wav"))
+        uploaded = [call for call in storage.calls if call[0] == "upload"]
+        self.assertEqual(uploaded[0][2]["file_options"]["content-type"], "audio/wav")
+
+    async def test_audio_upload_rejects_unsupported_type_before_storage(self):
+        storage = FakeStorage()
+        with patch.object(track_media, "supabase_client", SimpleNamespace(storage=storage)):
+            with self.assertRaisesRegex(ValueError, "Unsupported audio format"):
+                await track_media.upload_track_audio(
+                    b"audio-bytes", "song.mp4", "video/mp4", "track-bad-type", is_paid=False
+                )
+
+        self.assertEqual(storage.calls, [])
+
+    async def test_audio_upload_rejects_empty_file_before_storage(self):
+        storage = FakeStorage()
+        with patch.object(track_media, "supabase_client", SimpleNamespace(storage=storage)):
+            with self.assertRaisesRegex(ValueError, "audio file is empty"):
+                await track_media.upload_track_audio(
+                    b"", "song.mp3", "audio/mpeg", "track-empty", is_paid=False
+                )
+
+        self.assertEqual(storage.calls, [])
+
+    async def test_audio_storage_errors_are_reported_as_temporary_failures(self):
+        def fail_upload(*_args, **_kwargs):
+            raise OSError("storage offline")
+
+        with patch.object(track_media, "_upload_object", side_effect=fail_upload):
+            with self.assertRaisesRegex(RuntimeError, "Audio storage is temporarily unavailable"):
+                await track_media.upload_track_audio(
+                    b"audio-bytes", "song.mp3", "audio/mpeg", "track-storage", is_paid=False
+                )
+
+    async def test_audio_cleanup_removes_paid_original_and_public_preview(self):
+        storage = FakeStorage()
+        with patch.object(track_media, "supabase_client", SimpleNamespace(storage=storage)):
+            await track_media.delete_track_audio(
+                "track-cleanup", "song.wav", "audio/wav", is_paid=True
+            )
+
+        removals = [call for call in storage.calls if call[0] == "remove"]
+        self.assertEqual(
+            removals,
+            [
+                ("remove", track_media.PAID_AUDIO_BUCKET, ["audio/track-cleanup.wav"]),
+                ("remove", track_media.PUBLIC_MEDIA_BUCKET, ["previews/track-cleanup.mp3"]),
+            ],
+        )
+
     async def test_paid_upload_keeps_original_private_and_creates_public_preview(self):
         storage = FakeStorage()
         with (
