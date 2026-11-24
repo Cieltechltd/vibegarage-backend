@@ -77,8 +77,15 @@ source of truth instead of constructing paths in the client.
 
 ## Playback and purchases
 
-Start playback by calling `POST /tracks/stream/{track_id}`. Use the track data
-returned by the API to decide whether to play preview or full media:
+Start playback by calling `POST /tracks/stream/{track_id}`. Treat catalogue
+`audio_path` values as display/playback hints only: paid tracks expose a short
+public preview there, while the original paid file stays private. Use the
+`stream_url` returned by this endpoint for playback and do not save it; for a
+paid track it is a signed URL that expires after five minutes.
+
+The endpoint checks the signed-in user or purchase before returning full media.
+For a public fan link or a listener who has not purchased the track, it returns
+the preview URL instead.
 
 - Non-premium tracks can use the full stream.
 - Premium tracks without access should use the preview and show purchase UI.

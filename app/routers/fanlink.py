@@ -12,6 +12,7 @@ from app.models.fanlink import FanLink
 from app.models.track import Track
 from app.models.user import User
 from app.schemas.fanlink import FanLinkCreate, FanLinkOut, FanLinkPublicOut, FanLinkTrackOut
+from app.services.track_media import catalog_audio_url, track_playback_url
 
 router = APIRouter(prefix="/fanlinks", tags=["FanLinks"])
 logger = logging.getLogger("vibe-garage-fanlinks")
@@ -105,7 +106,7 @@ def get_fanlink_public(slug: str, db: Session = Depends(get_db)):
             title=track.title,
             artist_name=(artist.stage_name or artist.username) if artist else "Unknown Artist",
             cover_url=track.cover_path,
-            preview_url=track.audio_path
+            preview_url=catalog_audio_url(track)
         )
     )
 
@@ -129,10 +130,11 @@ async def download_fanlink_track(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="This track has no audio file on record.")
 
  
-    audio_url = track.audio_path
-    if not audio_url.startswith("http"):
-        base_filename = os.path.basename(audio_url)
-        audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/audio/{base_filename}"
+    try:
+        audio_url = track_playback_url(track, can_play_full=True)
+    except RuntimeError as exc:
+        logger.error("FanLink %s download media is unavailable: %s", slug, exc)
+        raise HTTPException(status_code=503, detail="Track audio is temporarily unavailable.")
 
     safe_title = re.sub(r'[^\w\s-]', '', track.title).strip() or "track"
     ext = os.path.splitext(audio_url)[1] or ".mp3"

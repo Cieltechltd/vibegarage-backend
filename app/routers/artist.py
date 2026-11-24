@@ -14,6 +14,7 @@ from app.models.clip import GarageClip
 from app.models.follow import Follow
 from app.core.config import settings 
 from app.services.file_storage import save_file 
+from app.services.track_media import catalog_audio_url, upload_track_audio
 from app.schemas.artist import (
     ArtistStatsOut, \
     FullArtistProfileResponse
@@ -92,12 +93,14 @@ async def upload_track(
     if current_user.role.lower() != "artist":
         raise HTTPException(status_code=403, detail="Artist role required for uploads")
 
-    # Added 'await' to both calls:
-    audio_path = await save_file(audio, "audio") 
+    track_id = str(uuid.uuid4())
+    audio_path = await upload_track_audio(
+        await audio.read(), audio.filename, audio.content_type, track_id, is_paid=is_for_sale
+    )
     cover_path = await save_file(cover, "covers") if cover else None
 
     track = Track(
-        id=str(uuid.uuid4()), 
+        id=track_id,
         title=title,
         audio_path=audio_path,
         cover_path=cover_path,
@@ -113,7 +116,7 @@ async def upload_track(
     return {
         "id": str(track.id), 
         "title": track.title,
-        "audio_path": track.audio_path,
+        "audio_path": catalog_audio_url(track),
         "cover_path": track.cover_path,
         "price": track.price,
         "is_for_sale": track.is_for_sale,

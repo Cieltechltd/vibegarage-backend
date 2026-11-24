@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from typing import Optional
 from app.schemas.artist import ArtistPublic
 
@@ -19,6 +19,17 @@ class TrackOut(BaseModel):
     class Config:
         from_attributes = True
 
+    @model_validator(mode="after")
+    def use_preview_for_paid_tracks(self):
+        # This schema is also used for purchased-library and artist-upload
+        # responses. Keep those audio fields useful without ever turning the
+        # private storage reference into a public URL.
+        if self.is_for_sale:
+            self.audio_path = (
+                f"{SUPABASE_STORAGE_URL}/vibegarage/previews/{self.id}.mp3"
+            )
+        return self
+
     @field_validator("cover_path", mode="before")
     @classmethod
     def convert_cover_to_full_url(cls, value: Optional[str]) -> Optional[str]:
@@ -36,6 +47,8 @@ class TrackOut(BaseModel):
     def convert_audio_to_full_url(cls, value: Optional[str]) -> Optional[str]:
         if not value:
             return value
+        if value.startswith("private://"):
+            return ""
         if value.startswith("http://") or value.startswith("https://"):
             return value
         
@@ -79,6 +92,8 @@ class PublicTrackOut(BaseModel):
     def convert_public_audio_to_full_url(cls, value: Optional[str]) -> Optional[str]:
         if not value:
             return value
+        if value.startswith("private://"):
+            return ""
         if value.startswith("http://") or value.startswith("https://"):
             return value
         

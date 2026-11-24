@@ -6,6 +6,7 @@ from app.models.album import Album
 from app.models.track import Track
 from app.models.user import User
 from app.schemas.album import AlbumOut, AlbumPublic
+from app.services.track_media import catalog_audio_url, upload_track_audio
 from app.core.deps import get_current_user
 from supabase import create_client, Client
 import uuid
@@ -44,24 +45,22 @@ async def upload_track_to_album(
     if not album:
         raise HTTPException(status_code=404, detail="Album not found or unauthorized.")
 
-    
+    track_id = str(uuid.uuid4())
+    is_paid = price > 0.0
     try:
-        audio_ext = os.path.splitext(audio_file.filename)[1] or ".mp3"
-        audio_filename = f"audio/{uuid.uuid4()}{audio_ext}"
-        audio_data = await audio_file.read()
-        
-        supabase_client.storage.from_(BUCKET_NAME).upload(
-            path=audio_filename,
-            file=audio_data,
-            file_options={"content-type": audio_file.content_type}
+        audio_url = await upload_track_audio(
+            await audio_file.read(),
+            audio_file.filename,
+            audio_file.content_type,
+            track_id,
+            is_paid=is_paid,
         )
-        audio_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{audio_filename}"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload audio file: {str(e)}")
 
     
     new_track = Track(
-        id=str(uuid.uuid4()),
+        id=track_id,
         title=title,
         genre=genre,
         duration=0.0,  
@@ -69,7 +68,7 @@ async def upload_track_to_album(
         cover_path=album.cover_image,  
         artist_id=current_user.id,
         album_id=album.id,
-        is_for_sale=price > 0.0,
+        is_for_sale=is_paid,
         price=price
     )
     
@@ -84,7 +83,7 @@ async def upload_track_to_album(
             "id": new_track.id,
             "title": new_track.title,
             "genre": new_track.genre,
-            "audio_path": new_track.audio_path,
+            "audio_path": catalog_audio_url(new_track),
             "cover_path": new_track.cover_path,
             "price": new_track.price,
             "is_for_sale": new_track.is_for_sale,
@@ -118,7 +117,7 @@ def get_album_tracks(
             "title": track.title,
             "genre": track.genre,
             "duration": track.duration,
-            "audio_path": track.audio_path,
+            "audio_path": catalog_audio_url(track),
             "cover_path": track.cover_path,
             "price": track.price,
             "is_for_sale": track.is_for_sale,

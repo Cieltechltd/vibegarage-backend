@@ -20,6 +20,7 @@ from app.models.track import Track
 from app.models.user import User
 from app.routers.admin import is_feature_enabled
 from app.schemas.track import PublicTrackOut
+from app.services.track_media import catalog_audio_url, track_playback_url, upload_track_audio
 
 router = APIRouter(prefix="/tracks", tags=["Tracks"])
 logger = logging.getLogger("vibe-garage-tracks")
@@ -61,7 +62,7 @@ def format_public_track(track: Track, artist_user: User, db: Session, current_us
         "album_id": str(track.album_id) if track.album_id else None,
         "duration": getattr(track, 'duration', 0.0),
         "cover_path": track.cover_path or "",
-        "audio_path": track.audio_path,
+        "audio_path": catalog_audio_url(track),
         "genre": getattr(track, 'genre', "Unknown"),
         "plays": getattr(track, 'plays', 0),
         "likes": getattr(track, 'likes', 0),
@@ -112,18 +113,14 @@ async def upload_track(
 
     try:
         unique_id = str(uuid.uuid4())
-        
-        # Stream file reading directly instead of loading entire file into RAM memory
-        audio_ext = os.path.splitext(audio.filename)[1] or ".mp3"
-        audio_filename = f"audio/{unique_id}{audio_ext}"
         audio_data = await audio.read()
-        
-        supabase_client.storage.from_(BUCKET_NAME).upload(
-            path=audio_filename,
-            file=audio_data,
-            file_options={"content-type": audio.content_type}
+        audio_path_url = await upload_track_audio(
+            audio_data,
+            audio.filename,
+            audio.content_type,
+            unique_id,
+            is_paid=is_for_sale,
         )
-        audio_path_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{audio_filename}"
 
         cover_path_url = ""
         if cover:
@@ -191,17 +188,12 @@ def stream_track(
             if purchase:
                 user_owns_track = True
 
-    audio_path_str = track.audio_path
-    if not audio_path_str.startswith("http"):
-        base_filename = os.path.basename(audio_path_str)
-        audio_path_str = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/audio/{base_filename}"
-
-    final_stream_url = audio_path_str
-    is_preview = False
-    if getattr(track, 'is_for_sale', False) and not user_owns_track:
-        base_filename = os.path.basename(audio_path_str)
-        final_stream_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/previews/preview_{base_filename}"
-        is_preview = True
+    try:
+        final_stream_url = track_playback_url(track, can_play_full=user_owns_track)
+    except RuntimeError as exc:
+        logger.error("Track %s media is not available: %s", track_id, exc)
+        raise HTTPException(status_code=503, detail="Track audio is temporarily unavailable.")
+    is_preview = bool(getattr(track, "is_for_sale", False) and not user_owns_track)
 
     if current_user:
         recent_play = (
@@ -279,7 +271,12 @@ def download_track(
     db.add(new_download)
     db.commit()
 
-    return RedirectResponse(url=track.audio_path)
+    try:
+        audio_url = track_playback_url(track, can_play_full=True)
+    except RuntimeError as exc:
+        logger.error("Track %s download media is not available: %s", track_id, exc)
+        raise HTTPException(status_code=503, detail="Track audio is temporarily unavailable.")
+    return RedirectResponse(url=audio_url)
 
 
 @router.get("/my", response_model=list[PublicTrackOut])
